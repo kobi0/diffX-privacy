@@ -6,10 +6,10 @@ launch screen: a triangle, square and circle loader that ends by revealing the
 
 ## Install
 
-Copy `src/` into your app and install the one dependency:
+Copy `src/` into your app and install its two dependencies:
 
 ```sh
-npx expo install react-native-svg   # or: npm i react-native-svg && cd ios && pod install
+npx expo install react-native-svg expo-haptics
 ```
 
 ## Usage
@@ -30,6 +30,7 @@ npx expo install react-native-svg   # or: npm i react-native-svg && cd ios && po
 | `onDone` | — | Called when the animation has finished (after the Waka100 hold, or after the cross-fade). |
 | `fontSize` | 15% of screen width (max 72), plus 1 | Wordmark size in px. Drawn in the system font at its heaviest weight (SF Pro Black on iOS, Roboto Black on Android). |
 | `backgroundColor` | `#000000` | Screen colour. |
+| `haptics` | `true` | Vibrate briefly (a medium tap) when the wordmark appears. |
 
 `Wordmark` (the 3D wordmark on its own) and `WakaLogo` (the full icon redrawn in SVG) are also exported if you need the static logo anywhere else.
 
@@ -41,7 +42,7 @@ The motion copies Uber's Android launch animation: geometric shapes while loadin
 | --- | --- |
 | 0–0.5s | A merged shape (green triangle under a white square) tilts 40°, splits in two and swings back level. |
 | then every 0.4s | Conveyor step (0.2s slide + 0.2s hold): the left shape shrinks and fades out against the left edge, the right one slides into its place, and the next grows in from the right edge. Order: triangle, square, circle, then repeat. |
-| when ready | At the end of a pass (and not before `minCycles` passes), the two shapes swing back together and tilt (0.2s), then hard-cut to the 3D "Waka100" wordmark: silver "Waka", green "100", with the icon's three green speed lines in front of the "W". |
+| when ready | At the end of a pass (and not before `minCycles` passes), the two shapes swing back together and tilt (0.2s), then hard-cut to the 3D "Waka100" wordmark: silver "Waka", green "100", with the icon's three green speed lines in front of the "W". The phone gives a short medium-strength vibration at the same moment. |
 | +0.15s | A soft reflection sweeps diagonally across the wordmark (0.75s). |
 | +1.3s | `onDone` fires. The animation ends on the wordmark, which stays on screen. If you pass `renderLogin`, the wordmark cross-fades into that screen first. |
 

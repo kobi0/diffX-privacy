@@ -7,6 +7,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Polygon, Rect } from 'react-native-svg';
 import { COLORS } from './WakaLogo';
 import { Wordmark } from './Wordmark';
@@ -21,8 +22,8 @@ import { Wordmark } from './Wordmark';
  *    next shape grows in from the right edge: triangle, square, circle, ...
  * 3. Reveal: once the app is ready, the two shapes swing back together and
  *    tilt, then hard-cut to the 3D "Waka100" wordmark (with the icon's green
- *    speed lines in front of the W). A shine sweeps across it and the
- *    animation ends on the wordmark.
+ *    speed lines in front of the W), with a short vibration. A shine sweeps
+ *    across it and the animation ends on the wordmark.
  */
 
 type ShapeKind = 'triangle' | 'square' | 'circle';
@@ -83,6 +84,8 @@ export type LaunchAnimationProps = {
   /** Wordmark size in px. Defaults to 15% of the screen width (max 72), plus 1. */
   fontSize?: number;
   backgroundColor?: string;
+  /** Vibrate briefly when the wordmark appears (default true). */
+  haptics?: boolean;
 };
 
 /**
@@ -138,6 +141,7 @@ export function LaunchAnimation({
   onDone,
   fontSize,
   backgroundColor = '#000000',
+  haptics = true,
 }: LaunchAnimationProps) {
   const { width } = useWindowDimensions();
   const size = fontSize ?? Math.min(width * 0.15, 72) + 1;
@@ -157,6 +161,8 @@ export function LaunchAnimation({
   onDoneRef.current = onDone;
   const renderLoginRef = useRef(renderLogin);
   renderLoginRef.current = renderLogin;
+  const hapticsRef = useRef(haptics);
+  hapticsRef.current = haptics;
   const cyclesRef = useRef(0);
   const waitingForReadyRef = useRef(false);
   const mounted = useRef(true);
@@ -199,6 +205,10 @@ export function LaunchAnimation({
     ]).start(({ finished }) => {
       if (!finished || !mounted.current) return;
       setPhase('wordmark');
+      if (hapticsRef.current) {
+        // A failed vibration (unsupported device, haptics turned off) is not worth surfacing.
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+      }
       Animated.timing(shine, {
         toValue: 1,
         duration: SHINE_MS,
