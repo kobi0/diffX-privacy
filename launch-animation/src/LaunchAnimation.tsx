@@ -20,9 +20,10 @@ import { COLORS } from './WakaLogo';
  * 2. Loader: a two-slot conveyor. Every step the left shape shrinks and fades
  *    out against the left edge, the right one slides into its place and the
  *    next shape grows in from the right edge: triangle, square, circle, ...
- * 3. Reveal: once the app is ready, the two shapes swing back together, tilt,
- *    and hard-cut to the "Waka100" wordmark (with the icon's green speed lines
- *    in front of the W), which holds before handing off.
+ * 3. Reveal: once the app is ready, the two shapes swirl into the centre,
+ *    spinning and shrinking, and the "Waka100" wordmark (with the icon's green
+ *    speed lines in front of the W) swirls out of that point, then holds
+ *    before handing off.
  */
 
 type ShapeKind = 'triangle' | 'square' | 'circle';
@@ -48,7 +49,12 @@ const MERGED_HOLD_MS = 120;
 const TILT_MS = 70;
 const SPLIT_MS = 280;
 const SETTLE_MS = 250;
-const MERGE_MS = 220;
+// Swirl reveal.
+const SWIRL_OUT_MS = 650; // shapes spiral in
+const SWIRL_TURNS = 2;
+const UNVEIL_DELAY_MS = 450; // wordmark starts while the shapes are still spinning
+const UNVEIL_MS = 700;
+const UNVEIL_FROM_DEG = -300;
 /** How far apart the two merged shapes sit, as a fraction of their split distance. */
 const MERGED_OFFSET = 0.3;
 const TILT_DEG = 40;
@@ -195,9 +201,11 @@ export function LaunchAnimation({
   const step = useRef(new Animated.Value(0)).current; // conveyor position, 0..N
   const split = useRef(new Animated.Value(0)).current; // 0 = merged shape, 1 = two slots
   const tilt = useRef(new Animated.Value(0)).current; // 0..1 of TILT_DEG
+  const swirl = useRef(new Animated.Value(0)).current; // 0..1: shapes spiral into the centre
+  const unveil = useRef(new Animated.Value(0)).current; // 0..1: wordmark swirls in
   const exit = useRef(new Animated.Value(0)).current;
 
-  const [phase, setPhase] = useState<'loader' | 'wordmark' | 'exiting' | 'done'>('loader');
+  const [phase, setPhase] = useState<'loader' | 'reveal' | 'wordmark' | 'exiting' | 'done'>('loader');
   const readyRef = useRef(ready);
   readyRef.current = ready;
   const onDoneRef = useRef(onDone);
@@ -226,21 +234,23 @@ export function LaunchAnimation({
     });
   }, [exit]);
 
-  // Shapes swing back together and tilt, then hard-cut to the wordmark.
+  // Shapes spiral into the centre while the wordmark swirls out of it.
   const runReveal = useCallback(() => {
-    Animated.sequence([
-      Animated.parallel([
-        Animated.timing(split, { toValue: 0, duration: MERGE_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
-        Animated.timing(tilt, { toValue: 1, duration: MERGE_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+    setPhase('reveal');
+    Animated.parallel([
+      Animated.timing(split, { toValue: 0, duration: SWIRL_OUT_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.timing(swirl, { toValue: 1, duration: SWIRL_OUT_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      Animated.sequence([
+        Animated.delay(UNVEIL_DELAY_MS),
+        Animated.timing(unveil, { toValue: 1, duration: UNVEIL_MS, easing: Easing.out(Easing.back(1.2)), useNativeDriver: true }),
       ]),
-      Animated.delay(MERGED_HOLD_MS),
     ]).start(({ finished }) => {
       if (!finished || !mounted.current) return;
       setPhase('wordmark');
       later(runExit, WORDMARK_HOLD_MS);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [split, tilt, runExit]);
+  }, [split, swirl, unveil, runExit]);
 
   const runStep = useCallback(
     (k: number) => {
@@ -297,6 +307,7 @@ export function LaunchAnimation({
         if (cancelled) return;
         if (reduce) {
           // Show the wordmark still and hand off as soon as the app is ready.
+          unveil.setValue(1);
           setPhase('wordmark');
           if (readyRef.current) runExit();
           else waitingForReadyRef.current = true;
@@ -311,6 +322,8 @@ export function LaunchAnimation({
       step.stopAnimation();
       split.stopAnimation();
       tilt.stopAnimation();
+      swirl.stopAnimation();
+      unveil.stopAnimation();
       exit.stopAnimation();
     };
     // Run once on mount; later prop changes are read through refs.
@@ -345,7 +358,26 @@ export function LaunchAnimation({
     [step, split, pitch],
   );
 
-  const rotate = tilt.interpolate({ inputRange: [0, 1], outputRange: ['0deg', `-${TILT_DEG}deg`] });
+  const conveyorStyle = useMemo(() => {
+    const deg = Animated.add(Animated.multiply(tilt, -TILT_DEG), Animated.multiply(swirl, 360 * SWIRL_TURNS));
+    return {
+      opacity: swirl.interpolate({ inputRange: [0, 0.8, 1], outputRange: [1, 1, 0] }),
+      transform: [
+        { rotate: deg.interpolate({ inputRange: [-TILT_DEG, 360 * SWIRL_TURNS], outputRange: [`-${TILT_DEG}deg`, `${360 * SWIRL_TURNS}deg`] }) },
+        { scale: swirl.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
+      ],
+    };
+  }, [tilt, swirl]);
+  const wordmarkStyle = useMemo(
+    () => ({
+      opacity: unveil.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' }),
+      transform: [
+        { rotate: unveil.interpolate({ inputRange: [0, 1], outputRange: [`${UNVEIL_FROM_DEG}deg`, '0deg'] }) },
+        { scale: unveil.interpolate({ inputRange: [0, 1], outputRange: [0.1, 1] }) },
+      ],
+    }),
+    [unveil],
+  );
   const textStyle = { fontSize: size, lineHeight: size * 1.2, fontFamily: FONT_FAMILY };
 
   return (
@@ -365,16 +397,17 @@ export function LaunchAnimation({
           accessibilityRole="image"
           accessibilityLabel="Waka100 is loading"
         >
-          {phase === 'wordmark' || phase === 'exiting' ? (
-            <View>
+          {phase !== 'loader' && (
+            <Animated.View style={wordmarkStyle}>
               <SpeedLines fontSize={size} />
               <Text style={[styles.char, textStyle, styles.wordmark]}>
                 <Text style={{ color: COLORS.white }}>Waka</Text>
                 <Text style={{ color: COLORS.textGreenTop }}>100</Text>
               </Text>
-            </View>
-          ) : (
-            <Animated.View style={[styles.conveyor, { height: shapeSize, transform: [{ rotate }] }]}>
+            </Animated.View>
+          )}
+          {(phase === 'loader' || phase === 'reveal') && (
+            <Animated.View style={[styles.conveyor, styles.overlay, { height: shapeSize }, conveyorStyle]}>
               {SHAPES.map(({ kind, color }, n) => (
                 <Animated.View
                   key={n}
@@ -399,6 +432,8 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center' },
   conveyor: { width: 0, alignItems: 'center' },
+  // Centred on top of the wordmark while both are on screen.
+  overlay: { position: 'absolute' },
   slot: { position: 'absolute', left: 0, top: 0, alignItems: 'center', justifyContent: 'center' },
   char: { fontWeight: FONT_WEIGHT, includeFontPadding: false, textAlign: 'center' },
   wordmark: { letterSpacing: -1 },

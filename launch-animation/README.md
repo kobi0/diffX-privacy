@@ -42,8 +42,9 @@ The motion copies Uber's Android launch animation: geometric shapes while loadin
 | --- | --- |
 | 0–0.5s | A merged shape (green triangle under a white square) tilts 40°, splits in two and swings back level. |
 | then every 0.4s | Conveyor step (0.2s slide + 0.2s hold): the left shape shrinks and fades out against the left edge, the right one slides into its place, and the next grows in from the right edge. Order: triangle, square, circle, then repeat. |
-| when ready | At the end of a pass (and not before `minCycles` passes), the two shapes swing back together and tilt, then hard-cut to the "Waka100" wordmark: white "Waka", green "100", with the icon's three green speed lines in front of the "W". |
-| +0.9s | The loader fades out while `renderLogin()` fades in, then `onDone` fires. |
+| when ready | At the end of a pass (and not before `minCycles` passes), the two shapes swirl into the centre: they spiral inwards while spinning two full turns and shrinking away (0.65s). |
+| +0.45s | The "Waka100" wordmark swirls out of the same point: it spins in from -300° while growing from 10% to full size with a slight overshoot (0.7s). White "Waka", green "100", with the icon's three green speed lines in front of the "W". |
+| +0.9s hold | The screen fades out while `renderLogin()` fades in, then `onDone` fires. |
 
 When the OS "Reduce Motion" setting is on, the shapes are skipped: the wordmark shows still and cross-fades out as soon as `ready` is true.
 
