@@ -1,8 +1,8 @@
 # Waka100 launch animation
 
-React Native launch/loader animation built from the Waka100 app icon
-(`waka100-logo-reference.png`). The logo is redrawn in vector (`src/WakaLogo.tsx`)
-on the icon's 512×512 grid, so the finished frame matches the icon.
+React Native launch/loader animation for Waka100 in the style of Uber's
+launch screen. The characters of the "Waka100" wordmark (from
+`waka100-logo-reference.png`) take the place of Uber's circle and square.
 
 ## Install
 
@@ -17,7 +17,7 @@ npx expo install react-native-svg   # or: npm i react-native-svg && cd ios && po
 ```tsx
 <LaunchAnimation
   ready={authChecked}                       // true once your app has finished starting up
-  minCycles={2}                             // shortest loader run, in full 1.8s cycles
+  minCycles={1}                             // shortest loader run, in full 2.8s passes
   renderLogin={() => <LoginScreen />}       // your real login screen
   onDone={() => navigation.replace('Home')}
 />
@@ -26,31 +26,25 @@ npx expo install react-native-svg   # or: npm i react-native-svg && cd ios && po
 | Prop | Default | |
 | --- | --- | --- |
 | `ready` | — | The loader keeps looping until this is `true`. |
-| `minCycles` | `2` | Full 1.8s cycles to play before the outro, even if `ready` is already true. |
-| `renderLogin` | — | Rendered underneath and faded in during the hand-off. It stays on screen afterwards. |
+| `minCycles` | `1` | Full passes through W·a·k·a·1·0·0 (2.8s each) to play before handing off, even if `ready` is already true. |
+| `renderLogin` | — | Faded in underneath during the hand-off. It stays on screen afterwards. |
 | `onDone` | — | Called once the hand-off has finished. |
-| `showTile` | `true` | Draw the rounded app-icon tile behind the mark. |
-| `size` | 72% of shorter side (max 380) | Logo edge length in px. |
-| `backgroundColor` | `#050607` | Screen colour behind the logo. |
+| `fontSize` | 14% of screen width (max 64) | Character size in px. |
+| `backgroundColor` | `#000000` | Screen colour. |
 
-`WakaLogo` is also exported if you need the static logo anywhere else.
+`WakaLogo` (the full icon redrawn in SVG) is also exported if you need the static logo anywhere else.
 
-## Timeline (one 1.8s cycle)
+## Timeline
+
+The motion copies Uber's Android launch animation, using the Waka100 letters and numbers in place of Uber's circle and square.
 
 | Time | What happens |
 | --- | --- |
-| 0.00–0.40s | First `\` of the W slides down into place |
-| 0.18–0.58s | The `/` that runs behind the W slides in |
-| 0.36–0.76s | The front `\` lands over it |
-| 0.54–1.01s | Speed lines streak in from the left |
-| 0.68–1.30s | The two "0" rings pop in with an overshoot, left then right |
-| 0.90s | The "Waka100" wordmark rises in (first cycle only, then stays) |
-| 1.30–1.55s | Hold on the full logo |
-| 1.55–1.80s | The mark dashes off to the right while the speed lines trail, then the loop restarts |
+| 0–0.9s | The "Waka100" wordmark holds (white "Waka", green "100"). |
+| 0.9s | Hard cut: the wordmark collapses into one merged glyph, "W" stacked on "a". |
+| 0.95–1.3s | The glyph tilts 40°, splits into "W" and "a", and swings back level. |
+| then every 0.4s | Conveyor step (0.2s slide + 0.2s hold): the left character shrinks and fades out against the left edge, the right one slides into its place, and the next grows in from the right edge. Order: W a k a 1 0 0, then repeat. |
 
-When `ready` is true and `minCycles` cycles have played, the logo assembles one
-last time, holds, then scales up and fades out while `renderLogin()` fades in.
-Then `onDone` fires. When the OS "Reduce Motion" setting is on, the loop is
-skipped: the full logo is shown and cross-fades out as soon as `ready` is true.
+Once `ready` is true, the loader hands off at the end of the next full pass (and not before `minCycles` passes). The loader fades out while `renderLogin()` fades in, then `onDone` fires. When the OS "Reduce Motion" setting is on, the wordmark stays still and cross-fades out as soon as `ready` is true.
 
 All animation runs on the native driver.

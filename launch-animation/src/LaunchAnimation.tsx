@@ -3,137 +3,158 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
+  Platform,
   StyleSheet,
+  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
-import { COLORS, LogoLayer, LogoPart, VIEWBOX } from './WakaLogo';
+import { COLORS } from './WakaLogo';
 
-/** Length of one loader cycle in ms. */
-export const CYCLE_MS = 1800;
+/**
+ * Uber-style launch animation for Waka100.
+ *
+ * 1. The "Waka100" wordmark holds on screen.
+ * 2. Hard cut: the letters collapse into one merged glyph ("W" over "a"),
+ *    which tilts, splits in two and swings back level.
+ * 3. Loader: a two-slot conveyor. Every step the left character shrinks and
+ *    fades out against the left edge, the right one slides into its place and
+ *    the next character grows in from the right edge. It runs through every
+ *    letter and number: W a k a 1 0 0 W a ...
+ */
 
-// Points on the 0..1 cycle timeline.
-const ASSEMBLED = 0.8; // every piece is in place
-const DISPERSE = 0.86; // pieces start dashing off to the right
-const EXIT_MS = 520;
+const CHARS: Array<{ char: string; color: string }> = [
+  { char: 'W', color: COLORS.white },
+  { char: 'a', color: COLORS.white },
+  { char: 'k', color: COLORS.white },
+  { char: 'a', color: COLORS.white },
+  { char: '1', color: COLORS.textGreenTop },
+  { char: '0', color: COLORS.textGreenTop },
+  { char: '0', color: COLORS.textGreenTop },
+];
+const N = CHARS.length;
+
+/** One conveyor step: a fast slide, then a short hold (matches Uber's 0.4s beat). */
+const MOVE_MS = 200;
+const HOLD_MS = 200;
+export const STEP_MS = MOVE_MS + HOLD_MS;
+/** One full pass through all seven characters. */
+export const CYCLE_MS = N * STEP_MS;
+
+const WORDMARK_HOLD_MS = 900;
+const MERGED_HOLD_MS = 50;
+const TILT_MS = 70;
+const SPLIT_MS = 280;
+const SETTLE_MS = 250;
+const TILT_DEG = 40;
+const EXIT_MS = 450;
+
+const STEP_EASING = Easing.bezier(0.6, 0, 0.2, 1);
+
+const FONT_FAMILY = Platform.select({
+  ios: 'Helvetica Neue',
+  android: 'sans-serif',
+  default: 'Helvetica, Arial, sans-serif',
+});
 
 export type LaunchAnimationProps = {
   /** true once the app has finished starting up (fonts, auth check, ...). */
   ready: boolean;
-  /** Shortest loader run, in full 1.8s cycles, before the outro may start. */
+  /** Shortest loader run, in full passes through "Waka100" (2.8s each), before handing off. */
   minCycles?: number;
-  /** Screen revealed underneath the logo when the animation hands off. */
+  /** Screen faded in underneath when the animation hands off. */
   renderLogin?: () => React.ReactNode;
   /** Called once the hand-off transition has finished. */
   onDone?: () => void;
-  /** Draw the rounded app-icon tile behind the mark (default true). */
-  showTile?: boolean;
-  /** Logo edge length in px. Defaults to 72% of the shorter screen side. */
-  size?: number;
+  /** Character size in px. Defaults to 14% of the screen width (max 64). */
+  fontSize?: number;
   backgroundColor?: string;
 };
 
-type Motion = {
-  /** Cycle-timeline window in which the piece flies in. */
-  inStart: number;
-  inEnd: number;
-  /** Offset (in 512-viewBox units) the piece flies in from. */
-  fromX?: number;
-  fromY?: number;
-  /** Scale the piece grows from, around `origin`. */
-  fromScale?: number;
-  origin?: [number, number];
-  easing?: (v: number) => number;
-};
-
-// Draw order is back to front, matching the icon.
-const MOTIONS: Array<[LogoPart, Motion]> = [
-  ['speedLines', { inStart: 0.3, inEnd: 0.56, fromX: -90 }],
-  ['strokeBack', { inStart: 0.1, inEnd: 0.32, fromX: 40, fromY: -66 }],
-  ['strokeLeft', { inStart: 0.0, inEnd: 0.22, fromX: -38, fromY: -66 }],
-  ['strokeFront', { inStart: 0.2, inEnd: 0.42, fromX: -38, fromY: -66 }],
-  [
-    'ringRight',
-    { inStart: 0.48, inEnd: 0.72, fromScale: 0.35, origin: [395, 208], easing: Easing.out(Easing.back(2)) },
-  ],
-  [
-    'ringLeft',
-    { inStart: 0.38, inEnd: 0.62, fromScale: 0.35, origin: [333, 208], easing: Easing.out(Easing.back(2)) },
-  ],
-];
-
-function layerStyle(t: Animated.Value, m: Motion, k: number, isSpeedLines: boolean) {
-  const easing = m.easing ?? Easing.out(Easing.cubic);
-  const range = [0, m.inStart, m.inEnd, DISPERSE, 1];
-  const opacity = t.interpolate({
-    inputRange: range,
-    outputRange: [0, 0, 1, 1, 0],
-    easing,
-    extrapolate: 'clamp',
-  });
-  // Speed lines trail behind (drift left) while the mark dashes off to the right.
-  const exitX = (isSpeedLines ? -30 : 50) * k;
-  const translateX = t.interpolate({
-    inputRange: range,
-    outputRange: [(m.fromX ?? 0) * k, (m.fromX ?? 0) * k, 0, 0, exitX],
-    easing,
-    extrapolate: 'clamp',
-  });
-  const translateY = t.interpolate({
-    inputRange: range,
-    outputRange: [(m.fromY ?? 0) * k, (m.fromY ?? 0) * k, 0, 0, 0],
-    easing,
-    extrapolate: 'clamp',
-  });
-  const transform: any[] = [{ translateX }, { translateY }];
-  if (m.fromScale != null && m.origin) {
-    // RN scales around the view centre, so shift the origin there and back.
-    const ox = (m.origin[0] - VIEWBOX / 2) * k;
-    const oy = (m.origin[1] - VIEWBOX / 2) * k;
-    const scale = t.interpolate({
-      inputRange: range,
-      outputRange: [m.fromScale, m.fromScale, 1, 1, 1],
-      easing,
-      extrapolate: 'clamp',
-    });
-    transform.push({ translateX: ox }, { translateY: oy }, { scale }, { translateX: -ox }, { translateY: -oy });
+/**
+ * Where character `n` sits when the conveyor is at step `s`. Returns its centre
+ * offset in pitches (relative to the middle of the two slots) and its scale,
+ * which doubles as opacity. Piecewise linear in `s`.
+ */
+function charState(n: number, s: number) {
+  let p = n - s;
+  // The conveyor is a ring of N characters.
+  while (p <= -N / 2) p += N;
+  while (p > N / 2) p -= N;
+  const left = -1; // left edge of the left slot
+  const right = 1; // right edge of the right slot
+  if (p <= -1 || p >= 2) return { x: p < 0 ? left : right, scale: 0 };
+  if (p < 0) {
+    // Leaving: shrinks against the left edge.
+    const scale = 1 + p;
+    return { x: left + scale / 2, scale };
   }
-  return { opacity, transform };
+  if (p <= 1) return { x: -0.5 + p, scale: 1 };
+  // Arriving: grows from the right edge.
+  const scale = 2 - p;
+  return { x: right - scale / 2, scale };
+}
+
+/** Exact piecewise-linear interpolation table for character `n` over s ∈ [0, N]. */
+function charTable(n: number) {
+  const knots = new Set<number>([0, N]);
+  for (const pk of [-1, 0, 1, 2]) {
+    for (const m of [-1, 0, 1]) {
+      const s = n - pk + m * N;
+      if (s > 0 && s < N) knots.add(s);
+    }
+    // Wrap boundaries of the ring, where `p` jumps.
+  }
+  for (const m of [-1, 0, 1]) {
+    const s = n + N / 2 + m * N;
+    if (s > 0 && s < N) {
+      knots.add(s - 1e-4);
+      knots.add(s + 1e-4);
+    }
+  }
+  const inputRange = [...knots].sort((a, b) => a - b);
+  const states = inputRange.map((s) => charState(n, s));
+  return { inputRange, x: states.map((st) => st.x), scale: states.map((st) => st.scale) };
 }
 
 export function LaunchAnimation({
   ready,
-  minCycles = 2,
+  minCycles = 1,
   renderLogin,
   onDone,
-  showTile = true,
-  size,
-  backgroundColor = COLORS.screen,
+  fontSize,
+  backgroundColor = '#000000',
 }: LaunchAnimationProps) {
-  const { width, height } = useWindowDimensions();
-  const logoSize = size ?? Math.min(Math.min(width, height) * 0.72, 380);
-  const k = logoSize / VIEWBOX;
+  const { width } = useWindowDimensions();
+  const size = fontSize ?? Math.min(width * 0.14, 64);
+  const pitch = size * 0.72;
 
-  const t = useRef(new Animated.Value(0)).current;
-  const wordmark = useRef(new Animated.Value(0)).current;
+  const step = useRef(new Animated.Value(0)).current; // conveyor position, 0..N
+  const split = useRef(new Animated.Value(0)).current; // 0 = merged glyph, 1 = two slots
+  const tilt = useRef(new Animated.Value(0)).current; // 0..1 of TILT_DEG
   const exit = useRef(new Animated.Value(0)).current;
 
-  const [phase, setPhase] = useState<'loading' | 'exiting' | 'done'>('loading');
+  const [phase, setPhase] = useState<'wordmark' | 'loader' | 'exiting' | 'done'>('wordmark');
   const readyRef = useRef(ready);
   readyRef.current = ready;
-  const cyclesRef = useRef(0);
-  const reduceMotionRef = useRef<boolean | null>(null);
-  const waitingForReadyRef = useRef(false);
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
+  const cyclesRef = useRef(0);
+  const reduceMotionRef = useRef(false);
+  const waitingForReadyRef = useRef(false);
   const mounted = useRef(true);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+
+  const later = (fn: () => void, ms: number) => {
+    timers.current.push(setTimeout(() => mounted.current && fn(), ms));
+  };
 
   const runExit = useCallback(() => {
     if (!mounted.current) return;
     setPhase('exiting');
     Animated.timing(exit, {
       toValue: 1,
-      duration: reduceMotionRef.current ? 200 : EXIT_MS,
+      duration: EXIT_MS,
       easing: Easing.inOut(Easing.cubic),
       useNativeDriver: true,
     }).start(({ finished }) => {
@@ -143,37 +164,53 @@ export function LaunchAnimation({
     });
   }, [exit]);
 
-  // Assemble the logo one last time and hold it, then hand off.
-  const runOutro = useCallback(() => {
-    t.setValue(0);
-    Animated.parallel([
-      Animated.timing(t, {
-        toValue: ASSEMBLED,
-        duration: ASSEMBLED * CYCLE_MS,
-        easing: Easing.linear,
-        useNativeDriver: true,
-      }),
-      Animated.timing(wordmark, { toValue: 1, duration: 400, useNativeDriver: true }),
-    ]).start(({ finished }) => {
-      if (finished) setTimeout(runExit, 280);
-    });
-  }, [t, wordmark, runExit]);
+  const runStep = useCallback(
+    (k: number) => {
+      Animated.sequence([
+        Animated.timing(step, {
+          toValue: k + 1,
+          duration: MOVE_MS,
+          easing: STEP_EASING,
+          useNativeDriver: true,
+        }),
+        Animated.delay(HOLD_MS),
+      ]).start(({ finished }) => {
+        if (!finished || !mounted.current) return;
+        let next = k + 1;
+        if (next === N) {
+          // Back to the start of the ring; visually identical.
+          step.setValue(0);
+          next = 0;
+          cyclesRef.current += 1;
+          if (readyRef.current && cyclesRef.current >= minCycles) {
+            runExit();
+            return;
+          }
+        }
+        runStep(next);
+      });
+    },
+    [step, minCycles, runExit],
+  );
 
-  const runCycle = useCallback(() => {
-    if (!mounted.current) return;
-    t.setValue(0);
-    Animated.timing(t, {
-      toValue: 1,
-      duration: CYCLE_MS,
-      easing: Easing.linear,
-      useNativeDriver: true,
-    }).start(({ finished }) => {
-      if (!finished) return;
-      cyclesRef.current += 1;
-      if (readyRef.current && cyclesRef.current >= minCycles) runOutro();
-      else runCycle();
-    });
-  }, [t, minCycles, runOutro]);
+  // Wordmark -> merged glyph -> tilt -> split and level -> conveyor.
+  const runIntro = useCallback(() => {
+    later(() => {
+      setPhase('loader');
+      Animated.sequence([
+        Animated.delay(MERGED_HOLD_MS),
+        Animated.timing(tilt, { toValue: 1, duration: TILT_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }),
+        Animated.parallel([
+          Animated.timing(split, { toValue: 1, duration: SPLIT_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+          Animated.timing(tilt, { toValue: 0, duration: SPLIT_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
+        ]),
+        Animated.delay(SETTLE_MS),
+      ]).start(({ finished }) => {
+        if (finished && mounted.current) runStep(0);
+      });
+    }, WORDMARK_HOLD_MS);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tilt, split, runStep]);
 
   useEffect(() => {
     mounted.current = true;
@@ -184,26 +221,20 @@ export function LaunchAnimation({
         if (cancelled) return;
         reduceMotionRef.current = reduce;
         if (reduce) {
-          // Static logo; hand off as soon as the app is ready.
-          t.setValue(ASSEMBLED);
-          wordmark.setValue(1);
+          // Keep the wordmark still and hand off as soon as the app is ready.
           if (readyRef.current) runExit();
           else waitingForReadyRef.current = true;
           return;
         }
-        Animated.timing(wordmark, {
-          toValue: 1,
-          duration: 500,
-          delay: 0.5 * CYCLE_MS,
-          useNativeDriver: true,
-        }).start();
-        runCycle();
+        runIntro();
       });
     return () => {
       cancelled = true;
       mounted.current = false;
-      t.stopAnimation();
-      wordmark.stopAnimation();
+      timers.current.forEach(clearTimeout);
+      step.stopAnimation();
+      split.stopAnimation();
+      tilt.stopAnimation();
       exit.stopAnimation();
     };
     // Run once on mount; later prop changes are read through refs.
@@ -217,54 +248,65 @@ export function LaunchAnimation({
     }
   }, [ready, runExit]);
 
-  const layerStyles = useMemo(
-    () => MOTIONS.map(([part, motion]) => layerStyle(t, motion, k, part === 'speedLines')),
-    [t, k],
+  const charStyles = useMemo(
+    () =>
+      CHARS.map((_, n) => {
+        const table = charTable(n);
+        const x = step.interpolate({
+          inputRange: table.inputRange,
+          outputRange: table.x.map((v) => v * pitch),
+        });
+        const scale = step.interpolate({ inputRange: table.inputRange, outputRange: table.scale });
+        return {
+          opacity: scale,
+          // Before the split both visible characters share the centre.
+          transform: [{ translateX: Animated.multiply(x, split) }, { scale }],
+        };
+      }),
+    [step, split, pitch],
   );
 
-  const logoExitStyle = {
-    opacity: exit.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
-    transform: [{ scale: exit.interpolate({ inputRange: [0, 1], outputRange: [1, 1.12] }) }],
-  };
-  const loginStyle = {
-    opacity: exit,
-    transform: [{ translateY: exit.interpolate({ inputRange: [0, 1], outputRange: [24, 0] }) }],
-  };
+  const rotate = tilt.interpolate({ inputRange: [0, 1], outputRange: ['0deg', `-${TILT_DEG}deg`] });
+  const textStyle = { fontSize: size, lineHeight: size * 1.2, fontFamily: FONT_FAMILY };
 
   return (
     <View style={styles.fill}>
-      {phase !== 'loading' && renderLogin && (
-        <Animated.View style={[styles.fill, loginStyle]}>{renderLogin()}</Animated.View>
+      {(phase === 'exiting' || phase === 'done') && renderLogin && (
+        <Animated.View style={[styles.fill, { opacity: exit }]}>{renderLogin()}</Animated.View>
       )}
       {phase !== 'done' && (
         <Animated.View
-          style={[StyleSheet.absoluteFill, styles.center, { backgroundColor }, logoExitStyle]}
+          style={[
+            StyleSheet.absoluteFill,
+            styles.center,
+            { backgroundColor, opacity: exit.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }) },
+          ]}
           pointerEvents={phase === 'exiting' ? 'none' : 'auto'}
           accessible
           accessibilityRole="image"
           accessibilityLabel="Waka100 is loading"
         >
-          <View style={{ width: logoSize, height: logoSize }}>
-            {showTile && <LogoLayer part="tile" />}
-            {MOTIONS.map(([part], i) => (
-              <Animated.View key={part} style={[StyleSheet.absoluteFill, layerStyles[i]]}>
-                <LogoLayer part={part} />
-              </Animated.View>
-            ))}
-            <Animated.View
-              style={[
-                StyleSheet.absoluteFill,
-                {
-                  opacity: wordmark,
-                  transform: [
-                    { translateY: wordmark.interpolate({ inputRange: [0, 1], outputRange: [14 * k, 0] }) },
-                  ],
-                },
-              ]}
-            >
-              <LogoLayer part="wordmark" />
+          {phase === 'wordmark' || (phase === 'exiting' && reduceMotionRef.current) ? (
+            <Text style={[styles.char, textStyle, styles.wordmark]}>
+              <Text style={{ color: COLORS.white }}>Waka</Text>
+              <Text style={{ color: COLORS.textGreenTop }}>100</Text>
+            </Text>
+          ) : (
+            <Animated.View style={[styles.conveyor, { height: size * 1.2, transform: [{ rotate }] }]}>
+              {CHARS.map(({ char, color }, n) => (
+                <Animated.View
+                  key={n}
+                  style={[
+                    styles.slot,
+                    { width: pitch * 1.4, marginLeft: -pitch * 0.7, height: size * 1.2 },
+                    charStyles[n],
+                  ]}
+                >
+                  <Text style={[styles.char, textStyle, { color }]}>{char}</Text>
+                </Animated.View>
+              ))}
             </Animated.View>
-          </View>
+          )}
         </Animated.View>
       )}
     </View>
@@ -274,6 +316,10 @@ export function LaunchAnimation({
 const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center' },
+  conveyor: { width: 0, alignItems: 'center' },
+  slot: { position: 'absolute', left: 0, top: 0, alignItems: 'center', justifyContent: 'center' },
+  char: { fontWeight: '700', includeFontPadding: false, textAlign: 'center' },
+  wordmark: { letterSpacing: -1 },
 });
 
 export default LaunchAnimation;
