@@ -1,0 +1,11 @@
+{
+  "name": "@waka100/launch-animation",
+  "version": "1.0.0",
+  "private": true,
+  "main": "src/index.ts",
+  "peerDependencies": {
+    "react": ">=18",
+    "react-native": ">=0.72",
+    "react-native-svg": ">=13"
+  }
+}
