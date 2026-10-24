@@ -3,14 +3,13 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
-  Platform,
   StyleSheet,
-  Text,
   View,
   useWindowDimensions,
 } from 'react-native';
 import Svg, { Circle, Polygon, Rect } from 'react-native-svg';
 import { COLORS } from './WakaLogo';
+import { Wordmark } from './Wordmark';
 
 /**
  * Uber-style launch animation for Waka100.
@@ -22,8 +21,8 @@ import { COLORS } from './WakaLogo';
  *    next shape grows in from the right edge: triangle, square, circle, ...
  * 3. Reveal: once the app is ready, the two shapes swirl into the centre,
  *    spinning and shrinking, and the "Waka100" wordmark (with the icon's green
- *    speed lines in front of the W) swirls out of that point, then holds
- *    before handing off.
+ *    speed lines in front of the W) swirls out of that point. A shine sweeps
+ *    across it, then it holds before handing off.
  */
 
 type ShapeKind = 'triangle' | 'square' | 'circle';
@@ -44,7 +43,9 @@ export const STEP_MS = MOVE_MS + HOLD_MS;
 /** One full pass through triangle, square and circle. */
 export const CYCLE_MS = PASS.length * STEP_MS;
 
-const WORDMARK_HOLD_MS = 900;
+const WORDMARK_HOLD_MS = 1300;
+const SHINE_DELAY_MS = 150;
+const SHINE_MS = 750;
 const MERGED_HOLD_MS = 120;
 const TILT_MS = 70;
 const SPLIT_MS = 280;
@@ -62,65 +63,12 @@ const EXIT_MS = 450;
 
 const STEP_EASING = Easing.bezier(0.6, 0, 0.2, 1);
 
-// iOS and Android use the system font (SF Pro / Roboto) at its heaviest weight.
-const FONT_FAMILY = Platform.select({
-  ios: undefined,
-  android: 'sans-serif',
-  default: 'Inter, "Helvetica Neue", Arial, sans-serif',
-});
-const FONT_WEIGHT = '900';
-
-// Glyph metrics shared by SF Pro, Roboto and Inter, in em, for a line height of 1.2em.
-const CAP_TOP = 0.24;
-const CAP_HEIGHT = 0.715;
-
-/**
- * The three green speed lines from the icon, in cap-height units (100 = cap
- * height) measured from the W's left edge. Each line is tapered to a point on
- * the left and its right end tucks under the W's slanted left stroke.
- */
-const SPEED_LINES = [
-  { y: 72, from: -22, to: 30 },
-  { y: 83, from: -58, to: 32 },
-  { y: 94, from: -30, to: 34 },
-];
-const SPEED_LINE_THICKNESS = 7.5;
-const SPEED_LINES_LEFT = -60;
-const SPEED_LINES_WIDTH = 95;
-
 function Shape({ kind, color, size }: { kind: ShapeKind; color: string; size: number }) {
   return (
     <Svg width={size} height={size} viewBox="0 0 100 100">
       {kind === 'triangle' && <Polygon points="50,4 100,96 0,96" fill={color} />}
       {kind === 'square' && <Rect x="4" y="4" width="92" height="92" fill={color} />}
       {kind === 'circle' && <Circle cx="50" cy="50" r="48" fill={color} />}
-    </Svg>
-  );
-}
-
-/** Speed lines positioned against the left edge of a text box whose first glyph is "W". */
-function SpeedLines({ fontSize }: { fontSize: number }) {
-  const cap = CAP_HEIGHT * fontSize;
-  const t = SPEED_LINE_THICKNESS;
-  return (
-    <Svg
-      pointerEvents="none"
-      width={(SPEED_LINES_WIDTH / 100) * cap}
-      height={cap}
-      viewBox={`${SPEED_LINES_LEFT} 0 ${SPEED_LINES_WIDTH} 100`}
-      style={{
-        position: 'absolute',
-        left: (SPEED_LINES_LEFT / 100) * cap,
-        top: CAP_TOP * fontSize,
-      }}
-    >
-      {SPEED_LINES.map(({ y, from, to }) => (
-        <Polygon
-          key={y}
-          points={`${from},${y - t * 0.1} ${to},${y - t / 2} ${to},${y + t / 2} ${from},${y + t * 0.2}`}
-          fill={COLORS.greenMid}
-        />
-      ))}
     </Svg>
   );
 }
@@ -134,7 +82,7 @@ export type LaunchAnimationProps = {
   renderLogin?: () => React.ReactNode;
   /** Called once the hand-off transition has finished. */
   onDone?: () => void;
-  /** Wordmark size in px; the shapes scale with it. Defaults to 14% of the screen width (max 64), plus 1. */
+  /** Wordmark size in px. Defaults to 15% of the screen width (max 72), plus 1. */
   fontSize?: number;
   backgroundColor?: string;
 };
@@ -194,8 +142,8 @@ export function LaunchAnimation({
   backgroundColor = '#000000',
 }: LaunchAnimationProps) {
   const { width } = useWindowDimensions();
-  const size = fontSize ?? Math.min(width * 0.14, 64) + 1;
-  const shapeSize = size * 0.78;
+  const size = fontSize ?? Math.min(width * 0.15, 72) + 1;
+  const shapeSize = Math.min(width * 0.14, 64) * 0.78;
   const pitch = shapeSize * 1.08;
 
   const step = useRef(new Animated.Value(0)).current; // conveyor position, 0..N
@@ -203,6 +151,7 @@ export function LaunchAnimation({
   const tilt = useRef(new Animated.Value(0)).current; // 0..1 of TILT_DEG
   const swirl = useRef(new Animated.Value(0)).current; // 0..1: shapes spiral into the centre
   const unveil = useRef(new Animated.Value(0)).current; // 0..1: wordmark swirls in
+  const shine = useRef(new Animated.Value(0)).current; // 0..1: highlight sweeps across the wordmark
   const exit = useRef(new Animated.Value(0)).current;
 
   const [phase, setPhase] = useState<'loader' | 'reveal' | 'wordmark' | 'exiting' | 'done'>('loader');
@@ -247,10 +196,17 @@ export function LaunchAnimation({
     ]).start(({ finished }) => {
       if (!finished || !mounted.current) return;
       setPhase('wordmark');
+      Animated.timing(shine, {
+        toValue: 1,
+        duration: SHINE_MS,
+        delay: SHINE_DELAY_MS,
+        easing: Easing.inOut(Easing.quad),
+        useNativeDriver: true,
+      }).start();
       later(runExit, WORDMARK_HOLD_MS);
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [split, swirl, unveil, runExit]);
+  }, [split, swirl, unveil, shine, runExit]);
 
   const runStep = useCallback(
     (k: number) => {
@@ -324,6 +280,7 @@ export function LaunchAnimation({
       tilt.stopAnimation();
       swirl.stopAnimation();
       unveil.stopAnimation();
+      shine.stopAnimation();
       exit.stopAnimation();
     };
     // Run once on mount; later prop changes are read through refs.
@@ -378,7 +335,6 @@ export function LaunchAnimation({
     }),
     [unveil],
   );
-  const textStyle = { fontSize: size, lineHeight: size * 1.2, fontFamily: FONT_FAMILY };
 
   return (
     <View style={styles.fill}>
@@ -399,11 +355,7 @@ export function LaunchAnimation({
         >
           {phase !== 'loader' && (
             <Animated.View style={wordmarkStyle}>
-              <SpeedLines fontSize={size} />
-              <Text style={[styles.char, textStyle, styles.wordmark]}>
-                <Text style={{ color: COLORS.white }}>Waka</Text>
-                <Text style={{ color: COLORS.textGreenTop }}>100</Text>
-              </Text>
+              <Wordmark size={size} shine={shine} />
             </Animated.View>
           )}
           {(phase === 'loader' || phase === 'reveal') && (
@@ -435,8 +387,6 @@ const styles = StyleSheet.create({
   // Centred on top of the wordmark while both are on screen.
   overlay: { position: 'absolute' },
   slot: { position: 'absolute', left: 0, top: 0, alignItems: 'center', justifyContent: 'center' },
-  char: { fontWeight: FONT_WEIGHT, includeFontPadding: false, textAlign: 'center' },
-  wordmark: { letterSpacing: -1 },
 });
 
 export default LaunchAnimation;
