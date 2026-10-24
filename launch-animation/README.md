@@ -29,7 +29,7 @@ npx expo install react-native-svg   # or: npm i react-native-svg && cd ios && po
 | `minCycles` | `1` | Full passes through W·a·k·a·1·0·0 (2.8s each) to play before handing off, even if `ready` is already true. |
 | `renderLogin` | — | Faded in underneath during the hand-off. It stays on screen afterwards. |
 | `onDone` | — | Called once the hand-off has finished. |
-| `fontSize` | 14% of screen width (max 64) | Character size in px. |
+| `fontSize` | 14% of screen width (max 64), plus 1 | Character size in px. Drawn in the system font at its heaviest weight (SF Pro Black on iOS, Roboto Black on Android). |
 | `backgroundColor` | `#000000` | Screen colour. |
 
 `WakaLogo` (the full icon redrawn in SVG) is also exported if you need the static logo anywhere else.
@@ -40,7 +40,7 @@ The motion copies Uber's Android launch animation, using the Waka100 letters and
 
 | Time | What happens |
 | --- | --- |
-| 0–0.9s | The "Waka100" wordmark holds (white "Waka", green "100"). |
+| 0–0.9s | The "Waka100" wordmark holds (white "Waka", green "100"), with the icon's three green speed lines in front of the "W". The "W" keeps its speed lines through the whole animation. |
 | 0.9s | Hard cut: the wordmark collapses into one merged glyph, "W" stacked on "a". |
 | 0.95–1.3s | The glyph tilts 40°, splits into "W" and "a", and swings back level. |
 | then every 0.4s | Conveyor step (0.2s slide + 0.2s hold): the left character shrinks and fades out against the left edge, the right one slides into its place, and the next grows in from the right edge. Order: W a k a 1 0 0, then repeat. |

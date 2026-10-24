@@ -9,6 +9,7 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import Svg, { Polygon } from 'react-native-svg';
 import { COLORS } from './WakaLogo';
 
 /**
@@ -17,6 +18,7 @@ import { COLORS } from './WakaLogo';
  * 1. The "Waka100" wordmark holds on screen.
  * 2. Hard cut: the letters collapse into one merged glyph ("W" over "a"),
  *    which tilts, splits in two and swings back level.
+ *    The "W" always carries the icon's green speed lines on its left.
  * 3. Loader: a two-slot conveyor. Every step the left character shrinks and
  *    fades out against the left edge, the right one slides into its place and
  *    the next character grows in from the right edge. It runs through every
@@ -51,11 +53,58 @@ const EXIT_MS = 450;
 
 const STEP_EASING = Easing.bezier(0.6, 0, 0.2, 1);
 
+// iOS and Android use the system font (SF Pro / Roboto) at its heaviest weight.
 const FONT_FAMILY = Platform.select({
-  ios: 'Helvetica Neue',
+  ios: undefined,
   android: 'sans-serif',
-  default: 'Helvetica, Arial, sans-serif',
+  default: 'Inter, "Helvetica Neue", Arial, sans-serif',
 });
+const FONT_WEIGHT = '900';
+
+// Glyph metrics shared by SF Pro, Roboto and Inter, in em, for a line height of 1.2em.
+const CAP_TOP = 0.24;
+const CAP_HEIGHT = 0.715;
+
+/**
+ * The three green speed lines from the icon, in cap-height units (100 = cap
+ * height) measured from the W's left edge. Each line is tapered to a point on
+ * the left and its right end tucks under the W's slanted left stroke.
+ */
+const SPEED_LINES = [
+  { y: 72, from: -22, to: 30 },
+  { y: 83, from: -58, to: 32 },
+  { y: 94, from: -30, to: 34 },
+];
+const SPEED_LINE_THICKNESS = 7.5;
+const SPEED_LINES_LEFT = -60;
+const SPEED_LINES_WIDTH = 95;
+
+/** Speed lines positioned against the left edge of a text box whose first glyph is "W". */
+function SpeedLines({ fontSize }: { fontSize: number }) {
+  const cap = CAP_HEIGHT * fontSize;
+  const t = SPEED_LINE_THICKNESS;
+  return (
+    <Svg
+      pointerEvents="none"
+      width={(SPEED_LINES_WIDTH / 100) * cap}
+      height={cap}
+      viewBox={`${SPEED_LINES_LEFT} 0 ${SPEED_LINES_WIDTH} 100`}
+      style={{
+        position: 'absolute',
+        left: (SPEED_LINES_LEFT / 100) * cap,
+        top: CAP_TOP * fontSize,
+      }}
+    >
+      {SPEED_LINES.map(({ y, from, to }) => (
+        <Polygon
+          key={y}
+          points={`${from},${y - t * 0.1} ${to},${y - t / 2} ${to},${y + t / 2} ${from},${y + t * 0.2}`}
+          fill={COLORS.greenMid}
+        />
+      ))}
+    </Svg>
+  );
+}
 
 export type LaunchAnimationProps = {
   /** true once the app has finished starting up (fonts, auth check, ...). */
@@ -66,7 +115,7 @@ export type LaunchAnimationProps = {
   renderLogin?: () => React.ReactNode;
   /** Called once the hand-off transition has finished. */
   onDone?: () => void;
-  /** Character size in px. Defaults to 14% of the screen width (max 64). */
+  /** Character size in px. Defaults to 14% of the screen width (max 64), plus 1. */
   fontSize?: number;
   backgroundColor?: string;
 };
@@ -126,7 +175,7 @@ export function LaunchAnimation({
   backgroundColor = '#000000',
 }: LaunchAnimationProps) {
   const { width } = useWindowDimensions();
-  const size = fontSize ?? Math.min(width * 0.14, 64);
+  const size = fontSize ?? Math.min(width * 0.14, 64) + 1;
   const pitch = size * 0.72;
 
   const step = useRef(new Animated.Value(0)).current; // conveyor position, 0..N
@@ -287,10 +336,13 @@ export function LaunchAnimation({
           accessibilityLabel="Waka100 is loading"
         >
           {phase === 'wordmark' || (phase === 'exiting' && reduceMotionRef.current) ? (
-            <Text style={[styles.char, textStyle, styles.wordmark]}>
-              <Text style={{ color: COLORS.white }}>Waka</Text>
-              <Text style={{ color: COLORS.textGreenTop }}>100</Text>
-            </Text>
+            <View>
+              <SpeedLines fontSize={size} />
+              <Text style={[styles.char, textStyle, styles.wordmark]}>
+                <Text style={{ color: COLORS.white }}>Waka</Text>
+                <Text style={{ color: COLORS.textGreenTop }}>100</Text>
+              </Text>
+            </View>
           ) : (
             <Animated.View style={[styles.conveyor, { height: size * 1.2, transform: [{ rotate }] }]}>
               {CHARS.map(({ char, color }, n) => (
@@ -302,7 +354,10 @@ export function LaunchAnimation({
                     charStyles[n],
                   ]}
                 >
-                  <Text style={[styles.char, textStyle, { color }]}>{char}</Text>
+                  <View>
+                    {char === 'W' && <SpeedLines fontSize={size} />}
+                    <Text style={[styles.char, textStyle, { color }]}>{char}</Text>
+                  </View>
                 </Animated.View>
               ))}
             </Animated.View>
@@ -318,7 +373,7 @@ const styles = StyleSheet.create({
   center: { alignItems: 'center', justifyContent: 'center' },
   conveyor: { width: 0, alignItems: 'center' },
   slot: { position: 'absolute', left: 0, top: 0, alignItems: 'center', justifyContent: 'center' },
-  char: { fontWeight: '700', includeFontPadding: false, textAlign: 'center' },
+  char: { fontWeight: FONT_WEIGHT, includeFontPadding: false, textAlign: 'center' },
   wordmark: { letterSpacing: -1 },
 });
 
