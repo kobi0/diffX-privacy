@@ -9,45 +9,48 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
-import Svg, { Polygon } from 'react-native-svg';
+import Svg, { Circle, Polygon, Rect } from 'react-native-svg';
 import { COLORS } from './WakaLogo';
 
 /**
  * Uber-style launch animation for Waka100.
  *
- * 1. The "Waka100" wordmark holds on screen.
- * 2. Hard cut: the letters collapse into one merged glyph ("W" over "a"),
- *    which tilts, splits in two and swings back level.
- *    The "W" always carries the icon's green speed lines on its left.
- * 3. Loader: a two-slot conveyor. Every step the left character shrinks and
- *    fades out against the left edge, the right one slides into its place and
- *    the next character grows in from the right edge. It runs through every
- *    letter and number: W a k a 1 0 0 W a ...
+ * 1. A merged shape (triangle over square) tilts, splits in two and swings
+ *    back level.
+ * 2. Loader: a two-slot conveyor. Every step the left shape shrinks and fades
+ *    out against the left edge, the right one slides into its place and the
+ *    next shape grows in from the right edge: triangle, square, circle, ...
+ * 3. Reveal: once the app is ready, the two shapes swing back together, tilt,
+ *    and hard-cut to the "Waka100" wordmark (with the icon's green speed lines
+ *    in front of the W), which holds before handing off.
  */
 
-const CHARS: Array<{ char: string; color: string }> = [
-  { char: 'W', color: COLORS.white },
-  { char: 'a', color: COLORS.white },
-  { char: 'k', color: COLORS.white },
-  { char: 'a', color: COLORS.white },
-  { char: '1', color: COLORS.textGreenTop },
-  { char: '0', color: COLORS.textGreenTop },
-  { char: '0', color: COLORS.textGreenTop },
+type ShapeKind = 'triangle' | 'square' | 'circle';
+const PASS: Array<{ kind: ShapeKind; color: string }> = [
+  { kind: 'triangle', color: COLORS.textGreenTop },
+  { kind: 'square', color: COLORS.white },
+  { kind: 'circle', color: COLORS.white },
 ];
-const N = CHARS.length;
+// The conveyor needs at least four items so the shape leaving on the left is
+// never the same view as the one arriving on the right, so the pass runs twice.
+const SHAPES = [...PASS, ...PASS];
+const N = SHAPES.length;
 
 /** One conveyor step: a fast slide, then a short hold (matches Uber's 0.4s beat). */
 const MOVE_MS = 200;
 const HOLD_MS = 200;
 export const STEP_MS = MOVE_MS + HOLD_MS;
-/** One full pass through all seven characters. */
-export const CYCLE_MS = N * STEP_MS;
+/** One full pass through triangle, square and circle. */
+export const CYCLE_MS = PASS.length * STEP_MS;
 
 const WORDMARK_HOLD_MS = 900;
-const MERGED_HOLD_MS = 50;
+const MERGED_HOLD_MS = 120;
 const TILT_MS = 70;
 const SPLIT_MS = 280;
 const SETTLE_MS = 250;
+const MERGE_MS = 220;
+/** How far apart the two merged shapes sit, as a fraction of their split distance. */
+const MERGED_OFFSET = 0.3;
 const TILT_DEG = 40;
 const EXIT_MS = 450;
 
@@ -79,6 +82,16 @@ const SPEED_LINE_THICKNESS = 7.5;
 const SPEED_LINES_LEFT = -60;
 const SPEED_LINES_WIDTH = 95;
 
+function Shape({ kind, color, size }: { kind: ShapeKind; color: string; size: number }) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 100 100">
+      {kind === 'triangle' && <Polygon points="50,4 100,96 0,96" fill={color} />}
+      {kind === 'square' && <Rect x="4" y="4" width="92" height="92" fill={color} />}
+      {kind === 'circle' && <Circle cx="50" cy="50" r="48" fill={color} />}
+    </Svg>
+  );
+}
+
 /** Speed lines positioned against the left edge of a text box whose first glyph is "W". */
 function SpeedLines({ fontSize }: { fontSize: number }) {
   const cap = CAP_HEIGHT * fontSize;
@@ -109,25 +122,25 @@ function SpeedLines({ fontSize }: { fontSize: number }) {
 export type LaunchAnimationProps = {
   /** true once the app has finished starting up (fonts, auth check, ...). */
   ready: boolean;
-  /** Shortest loader run, in full passes through "Waka100" (2.8s each), before handing off. */
+  /** Shortest loader run, in full passes through triangle, square and circle (1.2s each), before the reveal. */
   minCycles?: number;
-  /** Screen faded in underneath when the animation hands off. */
+  /** Screen faded in underneath after the Waka100 reveal. */
   renderLogin?: () => React.ReactNode;
   /** Called once the hand-off transition has finished. */
   onDone?: () => void;
-  /** Character size in px. Defaults to 14% of the screen width (max 64), plus 1. */
+  /** Wordmark size in px; the shapes scale with it. Defaults to 14% of the screen width (max 64), plus 1. */
   fontSize?: number;
   backgroundColor?: string;
 };
 
 /**
- * Where character `n` sits when the conveyor is at step `s`. Returns its centre
+ * Where shape `n` sits when the conveyor is at step `s`. Returns its centre
  * offset in pitches (relative to the middle of the two slots) and its scale,
  * which doubles as opacity. Piecewise linear in `s`.
  */
-function charState(n: number, s: number) {
+function slotState(n: number, s: number) {
   let p = n - s;
-  // The conveyor is a ring of N characters.
+  // The conveyor is a ring of N shapes.
   while (p <= -N / 2) p += N;
   while (p > N / 2) p -= N;
   const left = -1; // left edge of the left slot
@@ -144,8 +157,8 @@ function charState(n: number, s: number) {
   return { x: right - scale / 2, scale };
 }
 
-/** Exact piecewise-linear interpolation table for character `n` over s ∈ [0, N]. */
-function charTable(n: number) {
+/** Exact piecewise-linear interpolation table for shape `n` over s ∈ [0, N]. */
+function slotTable(n: number) {
   const knots = new Set<number>([0, N]);
   for (const pk of [-1, 0, 1, 2]) {
     for (const m of [-1, 0, 1]) {
@@ -162,13 +175,13 @@ function charTable(n: number) {
     }
   }
   const inputRange = [...knots].sort((a, b) => a - b);
-  const states = inputRange.map((s) => charState(n, s));
+  const states = inputRange.map((s) => slotState(n, s));
   return { inputRange, x: states.map((st) => st.x), scale: states.map((st) => st.scale) };
 }
 
 export function LaunchAnimation({
   ready,
-  minCycles = 1,
+  minCycles = 2,
   renderLogin,
   onDone,
   fontSize,
@@ -176,20 +189,20 @@ export function LaunchAnimation({
 }: LaunchAnimationProps) {
   const { width } = useWindowDimensions();
   const size = fontSize ?? Math.min(width * 0.14, 64) + 1;
-  const pitch = size * 0.72;
+  const shapeSize = size * 0.78;
+  const pitch = shapeSize * 1.08;
 
   const step = useRef(new Animated.Value(0)).current; // conveyor position, 0..N
-  const split = useRef(new Animated.Value(0)).current; // 0 = merged glyph, 1 = two slots
+  const split = useRef(new Animated.Value(0)).current; // 0 = merged shape, 1 = two slots
   const tilt = useRef(new Animated.Value(0)).current; // 0..1 of TILT_DEG
   const exit = useRef(new Animated.Value(0)).current;
 
-  const [phase, setPhase] = useState<'wordmark' | 'loader' | 'exiting' | 'done'>('wordmark');
+  const [phase, setPhase] = useState<'loader' | 'wordmark' | 'exiting' | 'done'>('loader');
   const readyRef = useRef(ready);
   readyRef.current = ready;
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const cyclesRef = useRef(0);
-  const reduceMotionRef = useRef(false);
   const waitingForReadyRef = useRef(false);
   const mounted = useRef(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
@@ -213,6 +226,22 @@ export function LaunchAnimation({
     });
   }, [exit]);
 
+  // Shapes swing back together and tilt, then hard-cut to the wordmark.
+  const runReveal = useCallback(() => {
+    Animated.sequence([
+      Animated.parallel([
+        Animated.timing(split, { toValue: 0, duration: MERGE_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(tilt, { toValue: 1, duration: MERGE_MS, easing: Easing.in(Easing.cubic), useNativeDriver: true }),
+      ]),
+      Animated.delay(MERGED_HOLD_MS),
+    ]).start(({ finished }) => {
+      if (!finished || !mounted.current) return;
+      setPhase('wordmark');
+      later(runExit, WORDMARK_HOLD_MS);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [split, tilt, runExit]);
+
   const runStep = useCallback(
     (k: number) => {
       Animated.sequence([
@@ -230,23 +259,23 @@ export function LaunchAnimation({
           // Back to the start of the ring; visually identical.
           step.setValue(0);
           next = 0;
+        }
+        if (next % PASS.length === 0) {
           cyclesRef.current += 1;
           if (readyRef.current && cyclesRef.current >= minCycles) {
-            runExit();
+            runReveal();
             return;
           }
         }
         runStep(next);
       });
     },
-    [step, minCycles, runExit],
+    [step, minCycles, runReveal],
   );
 
-  // Wordmark -> merged glyph -> tilt -> split and level -> conveyor.
+  // Merged shape -> tilt -> split and level -> conveyor.
   const runIntro = useCallback(() => {
-    later(() => {
-      setPhase('loader');
-      Animated.sequence([
+    Animated.sequence([
         Animated.delay(MERGED_HOLD_MS),
         Animated.timing(tilt, { toValue: 1, duration: TILT_MS, easing: Easing.out(Easing.quad), useNativeDriver: true }),
         Animated.parallel([
@@ -254,11 +283,9 @@ export function LaunchAnimation({
           Animated.timing(tilt, { toValue: 0, duration: SPLIT_MS, easing: Easing.out(Easing.cubic), useNativeDriver: true }),
         ]),
         Animated.delay(SETTLE_MS),
-      ]).start(({ finished }) => {
-        if (finished && mounted.current) runStep(0);
-      });
-    }, WORDMARK_HOLD_MS);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    ]).start(({ finished }) => {
+      if (finished && mounted.current) runStep(0);
+    });
   }, [tilt, split, runStep]);
 
   useEffect(() => {
@@ -268,9 +295,9 @@ export function LaunchAnimation({
       .catch(() => false)
       .then((reduce) => {
         if (cancelled) return;
-        reduceMotionRef.current = reduce;
         if (reduce) {
-          // Keep the wordmark still and hand off as soon as the app is ready.
+          // Show the wordmark still and hand off as soon as the app is ready.
+          setPhase('wordmark');
           if (readyRef.current) runExit();
           else waitingForReadyRef.current = true;
           return;
@@ -297,10 +324,10 @@ export function LaunchAnimation({
     }
   }, [ready, runExit]);
 
-  const charStyles = useMemo(
+  const shapeStyles = useMemo(
     () =>
-      CHARS.map((_, n) => {
-        const table = charTable(n);
+      SHAPES.map((_, n) => {
+        const table = slotTable(n);
         const x = step.interpolate({
           inputRange: table.inputRange,
           outputRange: table.x.map((v) => v * pitch),
@@ -308,8 +335,11 @@ export function LaunchAnimation({
         const scale = step.interpolate({ inputRange: table.inputRange, outputRange: table.scale });
         return {
           opacity: scale,
-          // Before the split both visible characters share the centre.
-          transform: [{ translateX: Animated.multiply(x, split) }, { scale }],
+          // Merged, the two visible shapes overlap; split, they sit in their slots.
+          transform: [
+            { translateX: Animated.multiply(x, split.interpolate({ inputRange: [0, 1], outputRange: [MERGED_OFFSET, 1] })) },
+            { scale },
+          ],
         };
       }),
     [step, split, pitch],
@@ -335,7 +365,7 @@ export function LaunchAnimation({
           accessibilityRole="image"
           accessibilityLabel="Waka100 is loading"
         >
-          {phase === 'wordmark' || (phase === 'exiting' && reduceMotionRef.current) ? (
+          {phase === 'wordmark' || phase === 'exiting' ? (
             <View>
               <SpeedLines fontSize={size} />
               <Text style={[styles.char, textStyle, styles.wordmark]}>
@@ -344,20 +374,17 @@ export function LaunchAnimation({
               </Text>
             </View>
           ) : (
-            <Animated.View style={[styles.conveyor, { height: size * 1.2, transform: [{ rotate }] }]}>
-              {CHARS.map(({ char, color }, n) => (
+            <Animated.View style={[styles.conveyor, { height: shapeSize, transform: [{ rotate }] }]}>
+              {SHAPES.map(({ kind, color }, n) => (
                 <Animated.View
                   key={n}
                   style={[
                     styles.slot,
-                    { width: pitch * 1.4, marginLeft: -pitch * 0.7, height: size * 1.2 },
-                    charStyles[n],
+                    { width: shapeSize, marginLeft: -shapeSize / 2, height: shapeSize },
+                    shapeStyles[n],
                   ]}
                 >
-                  <View>
-                    {char === 'W' && <SpeedLines fontSize={size} />}
-                    <Text style={[styles.char, textStyle, { color }]}>{char}</Text>
-                  </View>
+                  <Shape kind={kind} color={color} size={shapeSize} />
                 </Animated.View>
               ))}
             </Animated.View>
