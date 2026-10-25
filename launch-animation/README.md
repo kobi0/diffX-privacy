@@ -1,5 +1,7 @@
 # Waka100 launch animation
 
+> **Web apps (Base44, Vite, Next.js):** use `web/WakaLaunch.jsx`, one file with no dependencies. See `web/BASE44.md`. The rest of this README is the React Native / Expo version.
+
 React Native launch/loader animation for Waka100 in the style of Uber's
 launch screen: a triangle, square and circle loader that ends by revealing the
 "Waka100" wordmark from `waka100-logo-reference.png`.
