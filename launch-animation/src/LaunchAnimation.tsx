@@ -23,8 +23,8 @@ import { Wordmark } from './Wordmark';
  * 3. Reveal: once the app is ready, the two shapes swing back together and
  *    tilt, then cut to the 3D "Waka100" wordmark (with the icon's green speed
  *    lines in front of the W) and a short vibration. The letters rise into
- *    view one by one from the bottom up, hold, then a wave stretches each one
- *    taller from its baseline. A shine sweeps across and the animation ends on
+ *    view one by one from the bottom up, hold, then a wave turns each one from
+ *    wide and short to tall and narrow. A shine sweeps across and the animation ends on
  *    the wordmark.
  */
 
@@ -49,9 +49,9 @@ export const CYCLE_MS = PASS.length * STEP_MS;
 // Kinetic wordmark reveal.
 const RISE_MS = 450;
 const RISE_HOLD_MS = 350;
-const STRETCH_MS = 700;
+const STRETCH_MS = 1200;
 const SHINE_DELAY_MS = 150;
-const SHINE_MS = 750;
+const SHINE_MS = 1100;
 /** Pause after the shine before `onDone` (the wordmark stays on screen either way). */
 const END_HOLD_MS = 550;
 const MERGED_HOLD_MS = 120;
@@ -359,8 +359,11 @@ export function LaunchAnimation({
           accessibilityRole="image"
           accessibilityLabel="Waka100 is loading"
         >
-          {phase === 'loader' ? (
-            <Animated.View style={[styles.conveyor, { height: shapeSize, transform: [{ rotate }] }]}>
+          {/* Mounted from the start so it is laid out before the reveal; its
+              letters stay hidden behind their masks until they rise. */}
+          <Wordmark size={size} rise={rise} stretch={stretch} shine={shine} />
+          {phase === 'loader' && (
+            <Animated.View style={[styles.conveyor, styles.overlay, { height: shapeSize, transform: [{ rotate }] }]}>
               {SHAPES.map(({ kind, color }, n) => (
                 <Animated.View
                   key={n}
@@ -374,8 +377,6 @@ export function LaunchAnimation({
                 </Animated.View>
               ))}
             </Animated.View>
-          ) : (
-            <Wordmark size={size} rise={rise} stretch={stretch} shine={shine} />
           )}
         </Animated.View>
       )}
@@ -387,6 +388,7 @@ const styles = StyleSheet.create({
   fill: { flex: 1 },
   center: { alignItems: 'center', justifyContent: 'center' },
   conveyor: { width: 0, alignItems: 'center' },
+  overlay: { position: 'absolute' },
   slot: { position: 'absolute', left: 0, top: 0, alignItems: 'center', justifyContent: 'center' },
 });
 

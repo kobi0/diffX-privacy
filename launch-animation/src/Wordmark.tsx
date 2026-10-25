@@ -10,7 +10,7 @@ import Svg, { Polygon } from 'react-native-svg';
  *   extrusion  darker copies stepped down and right, giving the letter depth
  *   face       the letter itself, a shade darker at the bottom
  *   highlight  the top half of the face in a lighter colour (a lit bevel)
- *   shine      a bright diagonal band that sweeps across the word once
+ *   shine      a soft bright band that sweeps across the word once
  *
  * The icon's three green speed lines sit in front of the "W", with their own
  * extruded edge.
@@ -19,8 +19,9 @@ import Svg, { Polygon } from 'react-native-svg';
  *
  *   rise     letters are uncovered from the bottom up by a rising mask, one
  *            after another from left to right
- *   stretch  a wave runs left to right in which each letter grows taller from
- *            its baseline, turning the word tall and condensed
+ *   stretch  a wave runs left to right in which each letter goes from wide
+ *            and short to tall and narrow, growing up from its baseline, while
+ *            the letters slide together so the word stays tightly set
  */
 
 // iOS and Android use the system font (SF Pro / Roboto) at its heaviest weight.
@@ -52,16 +53,18 @@ const DEPTH_EM = 0.075;
 const DEPTH_STEPS = 7;
 // A narrow bright band inside a wider faint one reads as a soft-edged reflection.
 const SHINE_BANDS = [
-  { widthEm: 0.8, opacity: 0.35 },
-  { widthEm: 0.28, opacity: 0.9 },
+  { widthEm: 1.0, opacity: 0.22 },
+  { widthEm: 0.35, opacity: 0.6 },
 ];
-const SHINE_ANGLE_DEG = 18;
 
-/** How much taller the letters end up after the stretch wave. */
-export const STRETCH_Y = 1.45;
-// Share of each 0..1 phase that one letter's own animation takes; the rest is stagger.
+/** Letter proportions before and after the stretch wave (wide and short -> tall and narrow). */
+const WIDE = { x: 1.0, y: 0.88 };
+const TALL = { x: 0.8, y: 1.38 };
+// Share of each 0..1 phase that one letter's own animation takes; the rest is
+// stagger. A large share means neighbouring letters overlap, so the wave reads
+// as one smooth motion rather than letters popping in turn.
 const RISE_LETTER_SPAN = 0.5;
-const STRETCH_LETTER_SPAN = 0.45;
+const STRETCH_LETTER_SPAN = 0.6;
 // Each letter's reveal mask, in em around its text box: room for the speed
 // lines, glow and extrusion, and for the letter once stretched.
 const CLIP = { top: 0.8, left: 1.0, right: 0.5, bottom: 0.3 };
@@ -118,8 +121,10 @@ function staggered(value: Animated.Value, i: number, span: number, easing: (t: n
 }
 
 /**
- * A tilted band-shaped window slides across the word while the bright copy of
- * the letter inside it counter-moves, so the copy stays aligned with the letter.
+ * A band-shaped window slides across the word while the bright copy of the
+ * letter inside it counter-moves, so the copy stays aligned with the letter.
+ * The band is upright: a tilted band would not stay aligned inside a letter
+ * that is scaled differently across and down.
  * `centre` is the word's centre in the letter's own coordinates, so every
  * letter's band lines up into one band across the word.
  */
@@ -129,6 +134,7 @@ function ShineBand({
   bandWidth,
   peakOpacity,
   centre,
+  scale,
   size,
   char,
   color,
@@ -139,12 +145,16 @@ function ShineBand({
   bandWidth: number;
   peakOpacity: number;
   centre: number;
+  /** The letter's horizontal scale; the band is drawn inside it, so undo it. */
+  scale: number;
   size: number;
   char: string;
   color: string;
   text: TextStyle[];
 }) {
-  const left = centre - bandWidth / 2;
+  const width = bandWidth / scale;
+  const left = centre - width / 2;
+  const x = Animated.multiply(shineX, 1 / scale);
   return (
     <Animated.View
       pointerEvents="none"
@@ -153,10 +163,10 @@ function ShineBand({
         top: -size * 0.4,
         height: size * 2,
         left,
-        width: bandWidth,
+        width,
         overflow: 'hidden',
         opacity: shine.interpolate({ inputRange: [0, 0.1, 0.9, 1], outputRange: [0, peakOpacity, peakOpacity, 0] }),
-        transform: [{ translateX: shineX }, { rotate: `${SHINE_ANGLE_DEG}deg` }],
+        transform: [{ translateX: x }],
       }}
     >
       <Animated.View
@@ -164,7 +174,7 @@ function ShineBand({
           position: 'absolute',
           top: size * 0.4,
           left: -left,
-          transform: [{ rotate: `${-SHINE_ANGLE_DEG}deg` }, { translateX: Animated.multiply(shineX, -1) }],
+          transform: [{ translateX: Animated.multiply(x, -1) }],
         }}
       >
         <Text style={[...text, { color }]}>{char}</Text>
@@ -186,6 +196,7 @@ export type WordmarkProps = {
 export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
   const [wordWidth, setWordWidth] = useState(0);
   const [letterX, setLetterX] = useState<number[]>([]);
+  const [letterW, setLetterW] = useState<number[]>([]);
 
   const riseValue = useMemo(() => rise ?? new Animated.Value(1), [rise]);
   const stretchValue = useMemo(() => stretch ?? new Animated.Value(1), [stretch]);
@@ -201,30 +212,57 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
   const clipHeight = CLIP_HEIGHT * size;
   // Distance from the centre of a letter's text box down to its baseline.
   const toBaseline = (BASELINE - LINE_HEIGHT / 2) * size;
+  const measured =
+    wordWidth > 0 &&
+    letterX.filter((x) => x != null).length === LETTERS.length &&
+    letterW.filter((w) => w != null).length === LETTERS.length;
 
-  const letterMotion = useMemo(
-    () =>
-      LETTERS.map((_, i) => {
-        const r = staggered(riseValue, i, RISE_LETTER_SPAN, Easing.out(Easing.cubic));
-        const s = staggered(stretchValue, i, STRETCH_LETTER_SPAN, Easing.inOut(Easing.cubic));
-        return {
-          maskY: r.interpolate({ inputRange: [0, 1], outputRange: [clipHeight, 0] }),
-          contentY: r.interpolate({ inputRange: [0, 1], outputRange: [-clipHeight, 0] }),
-          scaleY: s.interpolate({ inputRange: [0, 1], outputRange: [1, STRETCH_Y] }),
-        };
-      }),
-    [riseValue, stretchValue, clipHeight],
-  );
+  const letterMotion = useMemo(() => {
+    const progress = LETTERS.map((_, i) => staggered(stretchValue, i, STRETCH_LETTER_SPAN, Easing.inOut(Easing.cubic)));
+    // How much each letter's width differs from its natural width.
+    const widthDelta = progress.map((p, j) =>
+      p.interpolate({ inputRange: [0, 1], outputRange: [(letterW[j] ?? 0) * (WIDE.x - 1), (letterW[j] ?? 0) * (TALL.x - 1)] }),
+    );
+    const sum = (nodes: Animated.AnimatedInterpolation<number>[]) =>
+      nodes.reduce<Animated.AnimatedNode>((acc, n) => Animated.add(acc, n), new Animated.Value(0)) as Animated.AnimatedAddition<number>;
+    const half = (n: Animated.AnimatedNode) => Animated.multiply(n as Animated.AnimatedAddition<number>, 0.5);
+    const total = sum(widthDelta);
+    return LETTERS.map((_, i) => {
+      const r = staggered(riseValue, i, RISE_LETTER_SPAN, Easing.out(Easing.cubic));
+      const s = progress[i];
+      // Keep the letters packed as they change width, and the word centred:
+      // shift by the width change of every letter to the left, plus half of this
+      // letter's own (it scales about its centre), minus half of the total.
+      const packX = measured
+        ? Animated.add(Animated.add(sum(widthDelta.slice(0, i)), half(widthDelta[i])), Animated.multiply(half(total), -1))
+        : 0;
+      return {
+        maskY: r.interpolate({ inputRange: [0, 1], outputRange: [clipHeight, 0] }),
+        contentY: r.interpolate({ inputRange: [0, 1], outputRange: [-clipHeight, 0] }),
+        scaleX: s.interpolate({ inputRange: [0, 1], outputRange: [WIDE.x, TALL.x] }),
+        scaleY: s.interpolate({ inputRange: [0, 1], outputRange: [WIDE.y, TALL.y] }),
+        packX,
+      };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [riseValue, stretchValue, clipHeight, measured, letterW.join(',')]);
 
-  // Letters grow upwards, so keep the word centred by easing it down as it stretches.
+  // Letters grow upwards from the baseline, so keep the word centred vertically.
   const recentre = stretchValue.interpolate({
     inputRange: [0, 1],
-    outputRange: [0, (CAP_HEIGHT * size * (STRETCH_Y - 1)) / 2],
+    outputRange: [(CAP_HEIGHT * size * (WIDE.y - 1)) / 2, (CAP_HEIGHT * size * (TALL.y - 1)) / 2],
   });
+
+  // Where each letter ends up once stretched, for lining up the shine across letters.
+  const finalShift = (() => {
+    if (!measured) return [];
+    const d = letterW.map((w) => w * (TALL.x - 1));
+    const total = d.reduce((a, b) => a + b, 0);
+    return d.map((di, i) => d.slice(0, i).reduce((a, b) => a + b, 0) + di / 2 - total / 2);
+  })();
 
   const travel = wordWidth / 2 + Math.max(...SHINE_BANDS.map((b) => b.widthEm)) * size * 2;
   const shineX = shine?.interpolate({ inputRange: [0, 1], outputRange: [-travel, travel] });
-  const measured = wordWidth > 0 && letterX.length === LETTERS.length;
 
   return (
     <Animated.View
@@ -234,16 +272,16 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
       {LETTERS.map(({ char, palette }, i) => {
         const motion = letterMotion[i];
         return (
-          <View
+          <Animated.View
             key={i}
-            style={{ marginRight: i < LETTERS.length - 1 ? LETTER_SPACING_EM * size : 0 }}
+            style={{
+              marginRight: i < LETTERS.length - 1 ? LETTER_SPACING_EM * size : 0,
+              transform: [{ translateX: motion.packX }],
+            }}
             onLayout={(e) => {
-              const x = e.nativeEvent.layout.x;
-              setLetterX((prev) => {
-                const next = [...prev];
-                next[i] = x;
-                return next;
-              });
+              const { x, width: w } = e.nativeEvent.layout;
+              setLetterX((prev) => Object.assign([...prev], { [i]: x }));
+              setLetterW((prev) => Object.assign([...prev], { [i]: w }));
             }}
           >
             {/* Invisible copy that gives the letter its place in the row. */}
@@ -274,6 +312,7 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
                     { translateY: toBaseline },
                     { scaleY: motion.scaleY },
                     { translateY: -toBaseline },
+                    { scaleX: motion.scaleX },
                   ],
                 }}
               >
@@ -325,7 +364,9 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
                       shineX={shineX}
                       bandWidth={widthEm * size}
                       peakOpacity={opacity}
-                      centre={wordWidth / 2 - letterX[i]}
+                      // The word's centre in this letter's own (stretched) coordinates.
+                      centre={letterW[i] / 2 + (wordWidth / 2 - letterX[i] - finalShift[i] - letterW[i] / 2) / TALL.x}
+                      scale={TALL.x}
                       size={size}
                       char={char}
                       color={palette.shine}
@@ -334,7 +375,7 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
                   ))}
               </Animated.View>
             </Animated.View>
-          </View>
+          </Animated.View>
         );
       })}
     </Animated.View>
