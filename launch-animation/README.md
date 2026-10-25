@@ -42,9 +42,14 @@ The motion copies Uber's Android launch animation: geometric shapes while loadin
 | --- | --- |
 | 0–0.5s | A merged shape (green triangle under a white square) tilts 40°, splits in two and swings back level. |
 | then every 0.4s | Conveyor step (0.2s slide + 0.2s hold): the left shape shrinks and fades out against the left edge, the right one slides into its place, and the next grows in from the right edge. Order: triangle, square, circle, then repeat. |
-| when ready | At the end of a pass (and not before `minCycles` passes), the two shapes swing back together and tilt (0.2s), then hard-cut to the 3D "Waka100" wordmark: silver "Waka", green "100", with the icon's three green speed lines in front of the "W". The phone gives a short medium-strength vibration at the same moment. |
+| when ready | At the end of a pass (and not before `minCycles` passes), the two shapes swing back together and tilt (0.2s), then cut to the 3D "Waka100" wordmark, with a short medium-strength vibration. |
+| 0–0.45s | **Rise:** each letter is uncovered from the bottom up by a rising mask, one after another from left to right. The green speed lines come in with the "W". |
+| +0.35s | Hold. |
+| 0.7s | **Stretch wave:** left to right, each letter grows 45% taller from its baseline, turning the word tall and condensed. |
 | +0.15s | A soft reflection sweeps diagonally across the wordmark (0.75s). |
-| +1.3s | `onDone` fires. The animation ends on the wordmark, which stays on screen. If you pass `renderLogin`, the wordmark cross-fades into that screen first. |
+| +0.55s | `onDone` fires. The animation ends on the wordmark, which stays on screen. If you pass `renderLogin`, the wordmark cross-fades into that screen first. |
+
+The rise and stretch copy the kinetic-type reveal of a "CLAUDE" title card: a bottom-up mask reveal staggered across the letters, a short hold, then a staggered vertical stretch.
 
 When the OS "Reduce Motion" setting is on, the shapes are skipped: the wordmark shows still and finishes as soon as `ready` is true.
 

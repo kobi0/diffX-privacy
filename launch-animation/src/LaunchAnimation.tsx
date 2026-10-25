@@ -21,9 +21,11 @@ import { Wordmark } from './Wordmark';
  *    out against the left edge, the right one slides into its place and the
  *    next shape grows in from the right edge: triangle, square, circle, ...
  * 3. Reveal: once the app is ready, the two shapes swing back together and
- *    tilt, then hard-cut to the 3D "Waka100" wordmark (with the icon's green
- *    speed lines in front of the W), with a short vibration. A shine sweeps
- *    across it and the animation ends on the wordmark.
+ *    tilt, then cut to the 3D "Waka100" wordmark (with the icon's green speed
+ *    lines in front of the W) and a short vibration. The letters rise into
+ *    view one by one from the bottom up, hold, then a wave stretches each one
+ *    taller from its baseline. A shine sweeps across and the animation ends on
+ *    the wordmark.
  */
 
 type ShapeKind = 'triangle' | 'square' | 'circle';
@@ -44,9 +46,14 @@ export const STEP_MS = MOVE_MS + HOLD_MS;
 /** One full pass through triangle, square and circle. */
 export const CYCLE_MS = PASS.length * STEP_MS;
 
-const WORDMARK_HOLD_MS = 1300;
+// Kinetic wordmark reveal.
+const RISE_MS = 450;
+const RISE_HOLD_MS = 350;
+const STRETCH_MS = 700;
 const SHINE_DELAY_MS = 150;
 const SHINE_MS = 750;
+/** Pause after the shine before `onDone` (the wordmark stays on screen either way). */
+const END_HOLD_MS = 550;
 const MERGED_HOLD_MS = 120;
 const TILT_MS = 70;
 const SPLIT_MS = 280;
@@ -151,6 +158,8 @@ export function LaunchAnimation({
   const step = useRef(new Animated.Value(0)).current; // conveyor position, 0..N
   const split = useRef(new Animated.Value(0)).current; // 0 = merged shape, 1 = two slots
   const tilt = useRef(new Animated.Value(0)).current; // 0..1 of TILT_DEG
+  const rise = useRef(new Animated.Value(0)).current; // 0..1: wordmark letters rise into view
+  const stretch = useRef(new Animated.Value(0)).current; // 0..1: stretch wave across the letters
   const shine = useRef(new Animated.Value(0)).current; // 0..1: highlight sweeps across the wordmark
   const exit = useRef(new Animated.Value(0)).current;
 
@@ -209,17 +218,19 @@ export function LaunchAnimation({
         // A failed vibration (unsupported device, haptics turned off) is not worth surfacing.
         Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
       }
-      Animated.timing(shine, {
-        toValue: 1,
-        duration: SHINE_MS,
-        delay: SHINE_DELAY_MS,
-        easing: Easing.inOut(Easing.quad),
-        useNativeDriver: true,
-      }).start();
-      later(finish, WORDMARK_HOLD_MS);
+      // Each letter eases on its own inside Wordmark, so the phases run linearly.
+      Animated.sequence([
+        Animated.timing(rise, { toValue: 1, duration: RISE_MS, easing: Easing.linear, useNativeDriver: true }),
+        Animated.delay(RISE_HOLD_MS),
+        Animated.timing(stretch, { toValue: 1, duration: STRETCH_MS, easing: Easing.linear, useNativeDriver: true }),
+        Animated.delay(SHINE_DELAY_MS),
+        Animated.timing(shine, { toValue: 1, duration: SHINE_MS, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+      ]).start(({ finished: done }) => {
+        if (done) later(finish, END_HOLD_MS);
+      });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [split, tilt, shine, finish]);
+  }, [split, tilt, rise, stretch, shine, finish]);
 
   const runStep = useCallback(
     (k: number) => {
@@ -276,6 +287,8 @@ export function LaunchAnimation({
         if (cancelled) return;
         if (reduce) {
           // Show the wordmark still and finish as soon as the app is ready.
+          rise.setValue(1);
+          stretch.setValue(1);
           setPhase('wordmark');
           if (readyRef.current) finish();
           else waitingForReadyRef.current = true;
@@ -290,6 +303,8 @@ export function LaunchAnimation({
       step.stopAnimation();
       split.stopAnimation();
       tilt.stopAnimation();
+      rise.stopAnimation();
+      stretch.stopAnimation();
       shine.stopAnimation();
       exit.stopAnimation();
     };
@@ -360,7 +375,7 @@ export function LaunchAnimation({
               ))}
             </Animated.View>
           ) : (
-            <Wordmark size={size} shine={shine} />
+            <Wordmark size={size} rise={rise} stretch={stretch} shine={shine} />
           )}
         </Animated.View>
       )}
