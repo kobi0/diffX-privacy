@@ -6,10 +6,10 @@ launch screen: a triangle, square and circle loader that ends by revealing the
 
 ## Install
 
-Copy `src/` into your app and install its two dependencies:
+Copy `src/` (including `src/fonts/`) into your app and install its dependencies:
 
 ```sh
-npx expo install react-native-svg expo-haptics
+npx expo install react-native-svg expo-haptics expo-font
 ```
 
 ## Usage
@@ -28,7 +28,8 @@ npx expo install react-native-svg expo-haptics
 | `minCycles` | `2` | Full passes through triangle, square and circle (1.2s each) to play before the reveal, even if `ready` is already true. |
 | `renderLogin` | — | Optional. Leave it out and the animation ends on Waka100. Pass it to cross-fade from Waka100 into that screen. |
 | `onDone` | — | Called when the animation has finished (after the Waka100 hold, or after the cross-fade). |
-| `fontSize` | 15% of screen width (max 72), plus 1 | Wordmark size in px. Drawn in the system font at its heaviest weight (SF Pro Black on iOS, Roboto Black on Android). |
+| `fontSize` | 12.5% of screen width (max 60), plus 1 | Wordmark size in px. |
+| `tagline` | `"YOUR RIDE, YOUR RULES!"` | The line the dots turn into. |
 | `backgroundColor` | `#000000` | Screen colour. |
 | `haptics` | `true` | Vibrate briefly (a medium tap) when the wordmark appears. |
 
@@ -47,11 +48,18 @@ The motion copies Uber's Android launch animation: geometric shapes while loadin
 | +0.25s | Hold. |
 | 1.8s | **Width wave:** the whole word grows 60% taller from its baseline while a swell rolls through the letters from left to right, one and a half times. Letters trade width with each other (from about 55% to 145% of their own width) so the word's overall width never changes. The wave fades out and the letters settle back to even widths. |
 | +0.15s | A soft reflection glides across the wordmark (1.1s). |
-| +0.55s | `onDone` fires. The animation ends on the wordmark, which stays on screen. If you pass `renderLogin`, the wordmark cross-fades into that screen first. |
+| +0.35s | **Collapse:** left to right, each letter shrinks into a dot of its own colour (0.6s). |
+| 0.45s | The dots glide into an evenly spaced row as wide as the tagline. |
+| 0.7s | **Tagline:** "YOUR RIDE, YOUR RULES!" rises out of the dots word by word, from the bottom up, as the dots shrink away. |
+| +0.9s | `onDone` fires. The animation ends on the tagline, which stays on screen. If you pass `renderLogin`, it cross-fades into that screen first. |
 
-The rise and width wave copy the kinetic-type reveal of a "CLAUDE" title card, measured frame by frame: a fast bottom-up mask reveal staggered across the letters, then a travelling width wave at a fixed word width while the word grows taller. The card's last beat, where the letters collapse into dots, is left out so the animation ends on Waka100.
+The rise and width wave copy the kinetic-type reveal of a "CLAUDE" title card, measured frame by frame: a fast bottom-up mask reveal staggered across the letters, then a travelling width wave at a fixed word width while the word grows taller. The card's last beat is used too: the letters collapse into dots, which become the tagline.
 
 When the OS "Reduce Motion" setting is on, the shapes are skipped: the wordmark shows still and finishes as soon as `ready` is true.
+
+## Fonts
+
+"WAKA100" is set in **Orbitron Black** and the tagline in **Orbitron Medium**. Both files are in `src/fonts/` under the SIL Open Font License (`src/fonts/OFL.txt`), which allows bundling them in an app. `LaunchAnimation` loads them itself with `expo-font` and waits for them before the reveal, so there is nothing to set up.
 
 ## The 3D wordmark
 

@@ -7,9 +7,12 @@ import {
   View,
   useWindowDimensions,
 } from 'react-native';
+import { useFonts } from 'expo-font';
 import * as Haptics from 'expo-haptics';
 import Svg, { Circle, Polygon, Rect } from 'react-native-svg';
 import { COLORS } from './WakaLogo';
+import { FONT_FILES } from './fonts';
+import { Tagline } from './Tagline';
 import { Wordmark } from './Wordmark';
 
 /**
@@ -21,11 +24,14 @@ import { Wordmark } from './Wordmark';
  *    out against the left edge, the right one slides into its place and the
  *    next shape grows in from the right edge: triangle, square, circle, ...
  * 3. Reveal: once the app is ready, the two shapes swing back together and
- *    tilt, then cut to the 3D "Waka100" wordmark (with the icon's green speed
- *    lines in front of the W) and a short vibration. The letters rise into
- *    view one by one from the bottom up, then the word grows taller while a
- *    width wave rolls through the letters, which then settle evenly. A shine sweeps across and the animation ends on
- *    the wordmark.
+ *    tilt, then cut to the 3D "WAKA100" wordmark in Orbitron (with the icon's
+ *    green speed lines in front of the W) and a short vibration. The letters
+ *    rise into view one by one from the bottom up, then the word grows taller
+ *    while a width wave rolls through the letters, which then settle evenly.
+ *    A shine sweeps across.
+ * 4. Tagline: the letters collapse into dots one by one from left to right,
+ *    the dots glide into an even row, and the tagline rises out of them as the
+ *    dots shrink away. The animation ends on the tagline.
  */
 
 type ShapeKind = 'triangle' | 'square' | 'circle';
@@ -52,8 +58,14 @@ const RISE_HOLD_MS = 250;
 const STRETCH_MS = 1800;
 const SHINE_DELAY_MS = 150;
 const SHINE_MS = 1100;
-/** Pause after the shine before `onDone` (the wordmark stays on screen either way). */
-const END_HOLD_MS = 550;
+// Collapse into dots and tagline.
+const COLLAPSE_DELAY_MS = 350;
+const COLLAPSE_MS = 600;
+const TRAVEL_MS = 450;
+const TAGLINE_MS = 700;
+/** Pause on the tagline before `onDone` (it stays on screen either way). */
+const END_HOLD_MS = 900;
+export const DEFAULT_TAGLINE = 'YOUR RIDE, YOUR RULES!';
 const MERGED_HOLD_MS = 120;
 const TILT_MS = 70;
 const SPLIT_MS = 280;
@@ -82,14 +94,16 @@ export type LaunchAnimationProps = {
   /** Shortest loader run, in full passes through triangle, square and circle (1.2s each), before the reveal. */
   minCycles?: number;
   /**
-   * Optional screen to cross-fade to after the Waka100 reveal. Leave it out and
-   * the animation ends on the wordmark, which stays on screen.
+   * Optional screen to cross-fade to at the end. Leave it out and the
+   * animation ends on the tagline, which stays on screen.
    */
   renderLogin?: () => React.ReactNode;
-  /** Called when the animation has finished: after the wordmark hold, or after the cross-fade when `renderLogin` is given. */
+  /** Called when the animation has finished: after the tagline hold, or after the cross-fade when `renderLogin` is given. */
   onDone?: () => void;
-  /** Wordmark size in px. Defaults to 15% of the screen width (max 72), plus 1. */
+  /** Wordmark size in px. Defaults to 12.5% of the screen width (max 60), plus 1. */
   fontSize?: number;
+  /** The line the wordmark's dots turn into. */
+  tagline?: string;
   backgroundColor?: string;
   /** Vibrate briefly when the wordmark appears (default true). */
   haptics?: boolean;
@@ -149,9 +163,16 @@ export function LaunchAnimation({
   fontSize,
   backgroundColor = '#000000',
   haptics = true,
+  tagline = DEFAULT_TAGLINE,
 }: LaunchAnimationProps) {
   const { width } = useWindowDimensions();
-  const size = fontSize ?? Math.min(width * 0.15, 72) + 1;
+  // Orbitron is a wide face, so it is set smaller than a regular one.
+  const size = fontSize ?? Math.min(width * 0.125, 60) + 1;
+  const taglineSize = Math.min(width * 0.045, 22);
+  const [taglineWidth, setTaglineWidth] = useState<number>();
+  // The wordmark can't be shown until its font is in, so that counts towards being ready.
+  const [fontsLoaded, fontError] = useFonts(FONT_FILES);
+  const appReady = ready && (fontsLoaded || !!fontError);
   const shapeSize = Math.min(width * 0.14, 64) * 0.78;
   const pitch = shapeSize * 1.08;
 
@@ -161,11 +182,14 @@ export function LaunchAnimation({
   const rise = useRef(new Animated.Value(0)).current; // 0..1: wordmark letters rise into view
   const stretch = useRef(new Animated.Value(0)).current; // 0..1: stretch wave across the letters
   const shine = useRef(new Animated.Value(0)).current; // 0..1: highlight sweeps across the wordmark
+  const collapse = useRef(new Animated.Value(0)).current; // 0..1: letters collapse into dots
+  const travel = useRef(new Animated.Value(0)).current; // 0..1: dots glide into a row
+  const taglineReveal = useRef(new Animated.Value(0)).current; // 0..1: tagline rises, dots shrink away
   const exit = useRef(new Animated.Value(0)).current;
 
   const [phase, setPhase] = useState<'loader' | 'wordmark' | 'exiting' | 'done'>('loader');
-  const readyRef = useRef(ready);
-  readyRef.current = ready;
+  const readyRef = useRef(appReady);
+  readyRef.current = appReady;
   const onDoneRef = useRef(onDone);
   onDoneRef.current = onDone;
   const renderLoginRef = useRef(renderLogin);
@@ -225,12 +249,16 @@ export function LaunchAnimation({
         Animated.timing(stretch, { toValue: 1, duration: STRETCH_MS, easing: Easing.linear, useNativeDriver: true }),
         Animated.delay(SHINE_DELAY_MS),
         Animated.timing(shine, { toValue: 1, duration: SHINE_MS, easing: Easing.inOut(Easing.quad), useNativeDriver: true }),
+        Animated.delay(COLLAPSE_DELAY_MS),
+        Animated.timing(collapse, { toValue: 1, duration: COLLAPSE_MS, easing: Easing.linear, useNativeDriver: true }),
+        Animated.timing(travel, { toValue: 1, duration: TRAVEL_MS, easing: Easing.inOut(Easing.cubic), useNativeDriver: true }),
+        Animated.timing(taglineReveal, { toValue: 1, duration: TAGLINE_MS, easing: Easing.linear, useNativeDriver: true }),
       ]).start(({ finished: done }) => {
         if (done) later(finish, END_HOLD_MS);
       });
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [split, tilt, rise, stretch, shine, finish]);
+  }, [split, tilt, rise, stretch, shine, collapse, travel, taglineReveal, finish]);
 
   const runStep = useCallback(
     (k: number) => {
@@ -287,8 +315,8 @@ export function LaunchAnimation({
         if (cancelled) return;
         if (reduce) {
           // Show the wordmark still and finish as soon as the app is ready.
-          rise.setValue(1);
-          stretch.setValue(1);
+          // Skip straight to the final frame: the tagline.
+          [rise, stretch, collapse, travel, taglineReveal].forEach((v) => v.setValue(1));
           setPhase('wordmark');
           if (readyRef.current) finish();
           else waitingForReadyRef.current = true;
@@ -306,6 +334,9 @@ export function LaunchAnimation({
       rise.stopAnimation();
       stretch.stopAnimation();
       shine.stopAnimation();
+      collapse.stopAnimation();
+      travel.stopAnimation();
+      taglineReveal.stopAnimation();
       exit.stopAnimation();
     };
     // Run once on mount; later prop changes are read through refs.
@@ -313,11 +344,11 @@ export function LaunchAnimation({
   }, []);
 
   useEffect(() => {
-    if (ready && waitingForReadyRef.current) {
+    if (appReady && waitingForReadyRef.current) {
       waitingForReadyRef.current = false;
       finish();
     }
-  }, [ready, finish]);
+  }, [appReady, finish]);
 
   const shapeStyles = useMemo(
     () =>
@@ -361,7 +392,19 @@ export function LaunchAnimation({
         >
           {/* Mounted from the start so it is laid out before the reveal; its
               letters stay hidden behind their masks until they rise. */}
-          <Wordmark size={size} rise={rise} stretch={stretch} shine={shine} />
+          <Wordmark
+            size={size}
+            rise={rise}
+            stretch={stretch}
+            shine={shine}
+            collapse={collapse}
+            travel={travel}
+            dotsOut={taglineReveal}
+            dotsSpan={taglineWidth}
+          />
+          <View style={styles.overlay} pointerEvents="none">
+            <Tagline text={tagline} size={taglineSize} reveal={taglineReveal} onWidth={setTaglineWidth} />
+          </View>
           {phase === 'loader' && (
             <Animated.View style={[styles.conveyor, styles.overlay, { height: shapeSize, transform: [{ rotate }] }]}>
               {SHAPES.map(({ kind, color }, n) => (

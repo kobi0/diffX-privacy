@@ -1,9 +1,10 @@
 import React, { useMemo, useState } from 'react';
-import { Animated, Easing, Platform, StyleSheet, Text, TextStyle, View } from 'react-native';
+import { Animated, Easing, StyleSheet, Text, TextStyle, View } from 'react-native';
 import Svg, { Polygon } from 'react-native-svg';
+import { FONTS, ORBITRON } from './fonts';
 
 /**
- * The "Waka100" wordmark. Each letter is its own stack of text copies, so it
+ * The "WAKA100" wordmark, set in Orbitron Black. Each letter is its own stack of text copies, so it
  * looks solid without any image assets or extra dependencies:
  *
  *   glow       soft green halo behind everything
@@ -23,21 +24,20 @@ import Svg, { Polygon } from 'react-native-svg';
  *            from left to right: letters swell and squeeze in turn, trading
  *            width with each other so the word's overall width never changes.
  *            The wave dies out and the letters settle back to even widths.
+ *   collapse each letter shrinks into a dot, one after another from left to
+ *            right, and the dots glide into an evenly spaced row (`travel`),
+ *            ready to turn into the tagline.
  */
 
-// iOS and Android use the system font (SF Pro / Roboto) at its heaviest weight.
-export const FONT_FAMILY = Platform.select({
-  ios: undefined,
-  android: 'sans-serif',
-  default: 'Inter, "Helvetica Neue", Arial, sans-serif',
-});
-export const FONT_WEIGHT = '900';
+// Orbitron's weight is chosen by family name, so no fontWeight on top.
+const FONT_FAMILY = FONTS.wordmark;
 
-// Glyph metrics shared by SF Pro, Roboto and Inter, in em, for a line height of 1.2em.
-const LINE_HEIGHT = 1.2;
-const CAP_TOP = 0.24;
-const CAP_HEIGHT = 0.715;
-const BASELINE = CAP_TOP + CAP_HEIGHT;
+// The line box is exactly ascent + descent, so the baseline sits at the ascent
+// on every platform.
+const LINE_HEIGHT = ORBITRON.ascent + ORBITRON.descent;
+const CAP_HEIGHT = ORBITRON.capHeight;
+const BASELINE = ORBITRON.ascent;
+const CAP_TOP = BASELINE - CAP_HEIGHT;
 
 const PALETTE = {
   waka: { highlight: '#FFFFFF', face: '#D3D6DC', sides: ['#8E9198', '#4A4C52'], shine: '#FFFFFF' },
@@ -47,7 +47,7 @@ const PALETTE = {
   speedLinesSide: '#2F6A05',
 };
 
-const LETTERS = 'Waka100'.split('').map((char, i) => ({ char, palette: i < 4 ? PALETTE.waka : PALETTE.hundred }));
+const LETTERS = 'WAKA100'.split('').map((char, i) => ({ char, palette: i < 4 ? PALETTE.waka : PALETTE.hundred }));
 
 /** Extrusion depth and number of copies used to draw it. */
 const DEPTH_EM = 0.075;
@@ -67,7 +67,11 @@ const WAVE_CYCLES = 1.5;
 /** Samples per letter used to describe the wave to the native animation driver. */
 const WAVE_SAMPLES = 72;
 // Share of each 0..1 phase that one letter's own animation takes; the rest is
+// stagger.
 const RISE_LETTER_SPAN = 0.5;
+const COLLAPSE_LETTER_SPAN = 0.45;
+/** Diameter of the dot each letter collapses into. */
+const DOT_EM = 0.16;
 // Each letter's reveal mask, in em around its text box: room for the speed
 // lines, glow and extrusion, and for the letter once stretched.
 const CLIP = { top: 0.8, left: 1.0, right: 0.5, bottom: 0.3 };
@@ -80,13 +84,13 @@ const LETTER_SPACING_EM = -0.02;
  * the left and its right end tucks under the W's slanted left stroke.
  */
 const SPEED_LINES = [
-  { y: 72, from: -22, to: 30 },
-  { y: 83, from: -58, to: 32 },
-  { y: 94, from: -30, to: 34 },
+  { y: 72, from: -15, to: 37 },
+  { y: 83, from: -49, to: 41 },
+  { y: 94, from: -19, to: 45 },
 ];
 const SPEED_LINE_THICKNESS = 7.5;
 const SPEED_LINES_LEFT = -60;
-const SPEED_LINES_WIDTH = 95;
+const SPEED_LINES_WIDTH = 110;
 
 /** Speed lines positioned against the left edge of a text box whose first glyph is "W". */
 function SpeedLines({ fontSize, color }: { fontSize: number; color: string }) {
@@ -229,15 +233,26 @@ export type WordmarkProps = {
   stretch?: Animated.Value;
   /** 0..1: the shine sweep. Omit for no shine. */
   shine?: Animated.Value;
+  /** 0..1: letters collapse into dots, left to right. Omit to keep the letters. */
+  collapse?: Animated.Value;
+  /** 0..1: the dots glide into an evenly spaced row `dotsSpan` wide. */
+  travel?: Animated.Value;
+  /** 0..1: the dots shrink away (as the tagline replaces them). */
+  dotsOut?: Animated.Value;
+  /** Width of the row the dots spread across. Defaults to 80% of the word. */
+  dotsSpan?: number;
 };
 
-export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
+export function Wordmark({ size, rise, stretch, shine, collapse, travel, dotsOut, dotsSpan }: WordmarkProps) {
   const [wordWidth, setWordWidth] = useState(0);
   const [letterX, setLetterX] = useState<number[]>([]);
   const [letterW, setLetterW] = useState<number[]>([]);
 
   const riseValue = useMemo(() => rise ?? new Animated.Value(1), [rise]);
   const stretchValue = useMemo(() => stretch ?? new Animated.Value(1), [stretch]);
+  const collapseValue = useMemo(() => collapse ?? new Animated.Value(0), [collapse]);
+  const travelValue = useMemo(() => travel ?? new Animated.Value(0), [travel]);
+  const dotsOutValue = useMemo(() => dotsOut ?? new Animated.Value(0), [dotsOut]);
 
   const text: TextStyle[] = [
     styles.text,
@@ -259,7 +274,14 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
     const wave = widthWave(LETTERS.map((_, j) => (measured ? letterW[j] : 1)));
     return LETTERS.map((_, i) => {
       const r = staggered(riseValue, i, RISE_LETTER_SPAN, Easing.out(Easing.cubic));
+      const c = staggered(collapseValue, i, COLLAPSE_LETTER_SPAN, Easing.in(Easing.cubic));
       return {
+        letterScale: c.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+        // The dot grows in as the letter shrinks into it, and shrinks away at the end.
+        dotScale: Animated.multiply(
+          c.interpolate({ inputRange: [0.55, 1], outputRange: [0, 1], extrapolate: 'clamp' }),
+          dotsOutValue.interpolate({ inputRange: [0, 1], outputRange: [1, 0] }),
+        ),
         maskY: r.interpolate({ inputRange: [0, 1], outputRange: [clipHeight, 0] }),
         contentY: r.interpolate({ inputRange: [0, 1], outputRange: [-clipHeight, 0] }),
         scaleX: stretchValue.interpolate({ inputRange: wave.t, outputRange: wave.scaleX[i] }),
@@ -268,7 +290,7 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [riseValue, stretchValue, clipHeight, measured, letterW.join(',')]);
+  }, [riseValue, stretchValue, collapseValue, dotsOutValue, clipHeight, measured, letterW.join(',')]);
 
   // Letters grow upwards from the baseline, so keep the word centred vertically.
   const recentre = stretchValue.interpolate({
@@ -277,8 +299,14 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
     easing: Easing.inOut(Easing.sin),
   });
 
-  const travel = wordWidth / 2 + Math.max(...SHINE_BANDS.map((b) => b.widthEm)) * size * 2;
-  const shineX = shine?.interpolate({ inputRange: [0, 1], outputRange: [-travel, travel] });
+  const shineTravel = wordWidth / 2 + Math.max(...SHINE_BANDS.map((b) => b.widthEm)) * size * 2;
+  const shineX = shine?.interpolate({ inputRange: [0, 1], outputRange: [-shineTravel, shineTravel] });
+
+  // A collapsing letter shrinks towards the middle of its stretched shape.
+  const middle = (BASELINE - (CAP_HEIGHT * TALL_Y) / 2) * size;
+  const toMiddle = middle - (LINE_HEIGHT * size) / 2;
+  const dot = DOT_EM * size;
+  const span = dotsSpan ?? wordWidth * 0.8;
 
   return (
     <Animated.View
@@ -292,7 +320,12 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
             key={i}
             style={{
               marginRight: i < LETTERS.length - 1 ? LETTER_SPACING_EM * size : 0,
-              transform: [{ translateX: motion.packX }],
+              transform: [
+                { translateX: motion.packX },
+                { translateY: toMiddle },
+                { scale: motion.letterScale },
+                { translateY: -toMiddle },
+              ],
             }}
             onLayout={(e) => {
               const { x, width: w } = e.nativeEvent.layout;
@@ -395,15 +428,44 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
           </Animated.View>
         );
       })}
+
+      {/* Dots: one per letter, at the letter's centre, gliding into an even row. */}
+      {measured &&
+        LETTERS.map(({ palette }, i) => {
+          const from = letterX[i] + letterW[i] / 2;
+          const to = wordWidth / 2 - span / 2 + (span * i) / (LETTERS.length - 1);
+          return (
+            <Animated.View
+              key={`dot${i}`}
+              pointerEvents="none"
+              style={[
+                styles.dot,
+                {
+                  left: from - dot / 2,
+                  top: middle - dot / 2,
+                  width: dot,
+                  height: dot,
+                  borderRadius: dot / 2,
+                  backgroundColor: palette.face,
+                  transform: [
+                    { translateX: travelValue.interpolate({ inputRange: [0, 1], outputRange: [0, to - from] }) },
+                    { scale: letterMotion[i].dotScale },
+                  ],
+                },
+              ]}
+            />
+          );
+        })}
     </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   row: { flexDirection: 'row' },
-  text: { fontWeight: FONT_WEIGHT, includeFontPadding: false, textAlign: 'center' },
+  text: { includeFontPadding: false, textAlign: 'center' },
   ghost: { opacity: 0 },
   mask: { position: 'absolute', overflow: 'hidden' },
   layer: { position: 'absolute', top: 0, left: 0 },
   top: { position: 'absolute', top: 0, left: 0, right: 0, overflow: 'hidden' },
+  dot: { position: 'absolute' },
 });
