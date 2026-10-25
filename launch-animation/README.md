@@ -44,12 +44,12 @@ The motion copies Uber's Android launch animation: geometric shapes while loadin
 | then every 0.4s | Conveyor step (0.2s slide + 0.2s hold): the left shape shrinks and fades out against the left edge, the right one slides into its place, and the next grows in from the right edge. Order: triangle, square, circle, then repeat. |
 | when ready | At the end of a pass (and not before `minCycles` passes), the two shapes swing back together and tilt (0.2s), then cut to the 3D "Waka100" wordmark, with a short medium-strength vibration. |
 | 0–0.45s | **Rise:** each letter is uncovered from the bottom up by a rising mask, one after another from left to right. The green speed lines come in with the "W". |
-| +0.35s | Hold. |
-| 1.2s | **Stretch wave:** left to right, each letter goes from wide and short to tall and narrow (20% narrower, about 55% taller), growing up from its baseline while the letters slide together. Neighbouring letters overlap in time, so it reads as one smooth wave. |
+| +0.25s | Hold. |
+| 1.8s | **Width wave:** the whole word grows 60% taller from its baseline while a swell rolls through the letters from left to right, one and a half times. Letters trade width with each other (from about 55% to 145% of their own width) so the word's overall width never changes. The wave fades out and the letters settle back to even widths. |
 | +0.15s | A soft reflection glides across the wordmark (1.1s). |
 | +0.55s | `onDone` fires. The animation ends on the wordmark, which stays on screen. If you pass `renderLogin`, the wordmark cross-fades into that screen first. |
 
-The rise and stretch copy the kinetic-type reveal of a "CLAUDE" title card: a bottom-up mask reveal staggered across the letters, a short hold, then a staggered wide-to-tall stretch.
+The rise and width wave copy the kinetic-type reveal of a "CLAUDE" title card, measured frame by frame: a fast bottom-up mask reveal staggered across the letters, then a travelling width wave at a fixed word width while the word grows taller. The card's last beat, where the letters collapse into dots, is left out so the animation ends on Waka100.
 
 When the OS "Reduce Motion" setting is on, the shapes are skipped: the wordmark shows still and finishes as soon as `ready` is true.
 

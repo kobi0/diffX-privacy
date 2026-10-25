@@ -19,9 +19,10 @@ import Svg, { Polygon } from 'react-native-svg';
  *
  *   rise     letters are uncovered from the bottom up by a rising mask, one
  *            after another from left to right
- *   stretch  a wave runs left to right in which each letter goes from wide
- *            and short to tall and narrow, growing up from its baseline, while
- *            the letters slide together so the word stays tightly set
+ *   stretch  the whole word grows taller while a width wave rolls through it
+ *            from left to right: letters swell and squeeze in turn, trading
+ *            width with each other so the word's overall width never changes.
+ *            The wave dies out and the letters settle back to even widths.
  */
 
 // iOS and Android use the system font (SF Pro / Roboto) at its heaviest weight.
@@ -57,14 +58,16 @@ const SHINE_BANDS = [
   { widthEm: 0.35, opacity: 0.6 },
 ];
 
-/** Letter proportions before and after the stretch wave (wide and short -> tall and narrow). */
-const WIDE = { x: 1.0, y: 0.88 };
-const TALL = { x: 0.8, y: 1.38 };
+/** How much taller the word ends up. */
+const TALL_Y = 1.6;
+/** Peak width change of a letter in the wave (0.45 = from 55% to 145% of its width). */
+const WAVE_AMPLITUDE = 0.45;
+/** How many times the swell travels across the word. */
+const WAVE_CYCLES = 1.5;
+/** Samples per letter used to describe the wave to the native animation driver. */
+const WAVE_SAMPLES = 72;
 // Share of each 0..1 phase that one letter's own animation takes; the rest is
-// stagger. A large share means neighbouring letters overlap, so the wave reads
-// as one smooth motion rather than letters popping in turn.
 const RISE_LETTER_SPAN = 0.5;
-const STRETCH_LETTER_SPAN = 0.6;
 // Each letter's reveal mask, in em around its text box: room for the speed
 // lines, glow and extrusion, and for the letter once stretched.
 const CLIP = { top: 0.8, left: 1.0, right: 0.5, bottom: 0.3 };
@@ -112,6 +115,41 @@ function mix(a: string, b: string, t: number) {
   const pa = [1, 3, 5].map((i) => parseInt(a.slice(i, i + 2), 16));
   const pb = [1, 3, 5].map((i) => parseInt(b.slice(i, i + 2), 16));
   return `#${pa.map((v, i) => Math.round(v + (pb[i] - v) * t).toString(16).padStart(2, '0')).join('')}`;
+}
+
+/**
+ * The width wave, sampled over the 0..1 stretch phase. A swell travels left to
+ * right through the letters; each letter's width follows a sine wave offset by
+ * its position. Every sample is rescaled so the letters' widths add up to the
+ * word's natural width: letters trade width and the word never grows or
+ * shrinks. Returns each letter's horizontal scale and the sideways shift that
+ * keeps the letters packed against each other.
+ */
+function widthWave(widths: number[]) {
+  const n = widths.length;
+  const natural = widths.reduce((a, b) => a + b, 0);
+  const t: number[] = [];
+  const scaleX: number[][] = widths.map(() => []);
+  const shift: number[][] = widths.map(() => []);
+  for (let k = 0; k <= WAVE_SAMPLES; k++) {
+    const u = k / WAVE_SAMPLES;
+    // Fade the wave in and out so the letters start and finish at even widths.
+    const envelope = Math.sin(Math.PI * u) ** 0.6;
+    const raw = widths.map((_, j) => 1 + WAVE_AMPLITUDE * envelope * Math.sin(2 * Math.PI * (WAVE_CYCLES * u - j / n)));
+    const fit = natural / widths.reduce((sum, w, j) => sum + w * raw[j], 0);
+    const sx = raw.map((v) => v * fit);
+    // Each letter scales about its centre: move it by the width change of every
+    // letter to its left plus half of its own.
+    let left = 0;
+    for (let j = 0; j < n; j++) {
+      const delta = widths[j] * (sx[j] - 1);
+      scaleX[j].push(sx[j]);
+      shift[j].push(left + delta / 2);
+      left += delta;
+    }
+    t.push(u);
+  }
+  return { t, scaleX, shift };
 }
 
 /** Letter `i`'s own 0..1 progress within a phase that staggers left to right. */
@@ -218,30 +256,15 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
     letterW.filter((w) => w != null).length === LETTERS.length;
 
   const letterMotion = useMemo(() => {
-    const progress = LETTERS.map((_, i) => staggered(stretchValue, i, STRETCH_LETTER_SPAN, Easing.inOut(Easing.cubic)));
-    // How much each letter's width differs from its natural width.
-    const widthDelta = progress.map((p, j) =>
-      p.interpolate({ inputRange: [0, 1], outputRange: [(letterW[j] ?? 0) * (WIDE.x - 1), (letterW[j] ?? 0) * (TALL.x - 1)] }),
-    );
-    const sum = (nodes: Animated.AnimatedInterpolation<number>[]) =>
-      nodes.reduce<Animated.AnimatedNode>((acc, n) => Animated.add(acc, n), new Animated.Value(0)) as Animated.AnimatedAddition<number>;
-    const half = (n: Animated.AnimatedNode) => Animated.multiply(n as Animated.AnimatedAddition<number>, 0.5);
-    const total = sum(widthDelta);
+    const wave = widthWave(LETTERS.map((_, j) => (measured ? letterW[j] : 1)));
     return LETTERS.map((_, i) => {
       const r = staggered(riseValue, i, RISE_LETTER_SPAN, Easing.out(Easing.cubic));
-      const s = progress[i];
-      // Keep the letters packed as they change width, and the word centred:
-      // shift by the width change of every letter to the left, plus half of this
-      // letter's own (it scales about its centre), minus half of the total.
-      const packX = measured
-        ? Animated.add(Animated.add(sum(widthDelta.slice(0, i)), half(widthDelta[i])), Animated.multiply(half(total), -1))
-        : 0;
       return {
         maskY: r.interpolate({ inputRange: [0, 1], outputRange: [clipHeight, 0] }),
         contentY: r.interpolate({ inputRange: [0, 1], outputRange: [-clipHeight, 0] }),
-        scaleX: s.interpolate({ inputRange: [0, 1], outputRange: [WIDE.x, TALL.x] }),
-        scaleY: s.interpolate({ inputRange: [0, 1], outputRange: [WIDE.y, TALL.y] }),
-        packX,
+        scaleX: stretchValue.interpolate({ inputRange: wave.t, outputRange: wave.scaleX[i] }),
+        scaleY: stretchValue.interpolate({ inputRange: [0, 1], outputRange: [1, TALL_Y], easing: Easing.inOut(Easing.sin) }),
+        packX: measured ? stretchValue.interpolate({ inputRange: wave.t, outputRange: wave.shift[i] }) : 0,
       };
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -250,16 +273,9 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
   // Letters grow upwards from the baseline, so keep the word centred vertically.
   const recentre = stretchValue.interpolate({
     inputRange: [0, 1],
-    outputRange: [(CAP_HEIGHT * size * (WIDE.y - 1)) / 2, (CAP_HEIGHT * size * (TALL.y - 1)) / 2],
+    outputRange: [0, (CAP_HEIGHT * size * (TALL_Y - 1)) / 2],
+    easing: Easing.inOut(Easing.sin),
   });
-
-  // Where each letter ends up once stretched, for lining up the shine across letters.
-  const finalShift = (() => {
-    if (!measured) return [];
-    const d = letterW.map((w) => w * (TALL.x - 1));
-    const total = d.reduce((a, b) => a + b, 0);
-    return d.map((di, i) => d.slice(0, i).reduce((a, b) => a + b, 0) + di / 2 - total / 2);
-  })();
 
   const travel = wordWidth / 2 + Math.max(...SHINE_BANDS.map((b) => b.widthEm)) * size * 2;
   const shineX = shine?.interpolate({ inputRange: [0, 1], outputRange: [-travel, travel] });
@@ -364,9 +380,10 @@ export function Wordmark({ size, rise, stretch, shine }: WordmarkProps) {
                       shineX={shineX}
                       bandWidth={widthEm * size}
                       peakOpacity={opacity}
-                      // The word's centre in this letter's own (stretched) coordinates.
-                      centre={letterW[i] / 2 + (wordWidth / 2 - letterX[i] - finalShift[i] - letterW[i] / 2) / TALL.x}
-                      scale={TALL.x}
+                      // The word's centre in this letter's own coordinates (the wave
+                      // has settled by the time the shine runs).
+                      centre={wordWidth / 2 - letterX[i]}
+                      scale={1}
                       size={size}
                       char={char}
                       color={palette.shine}

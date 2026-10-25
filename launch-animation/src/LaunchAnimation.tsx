@@ -23,8 +23,8 @@ import { Wordmark } from './Wordmark';
  * 3. Reveal: once the app is ready, the two shapes swing back together and
  *    tilt, then cut to the 3D "Waka100" wordmark (with the icon's green speed
  *    lines in front of the W) and a short vibration. The letters rise into
- *    view one by one from the bottom up, hold, then a wave turns each one from
- *    wide and short to tall and narrow. A shine sweeps across and the animation ends on
+ *    view one by one from the bottom up, then the word grows taller while a
+ *    width wave rolls through the letters, which then settle evenly. A shine sweeps across and the animation ends on
  *    the wordmark.
  */
 
@@ -48,8 +48,8 @@ export const CYCLE_MS = PASS.length * STEP_MS;
 
 // Kinetic wordmark reveal.
 const RISE_MS = 450;
-const RISE_HOLD_MS = 350;
-const STRETCH_MS = 1200;
+const RISE_HOLD_MS = 250;
+const STRETCH_MS = 1800;
 const SHINE_DELAY_MS = 150;
 const SHINE_MS = 1100;
 /** Pause after the shine before `onDone` (the wordmark stays on screen either way). */
